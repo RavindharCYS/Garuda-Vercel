@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Garuda Express — Waybill Portal</title>
+  <link rel="icon" href="../logo.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --pu-900:#1a0820;--pu-800:#2d1040;--pu-700:#3d1f5c;--pu-600:#5B2D8B;
+      --pu-500:#7B3FAD;--pu-400:#9B5AC8;--pu-300:#C08EE0;--pu-200:#DFC4F2;--pu-100:#F2E8FA;--pu-50:#FAF5FF;
+      --white:#fff;--gray-50:#F9F9FB;--gray-100:#F1EFF5;--gray-200:#E0DBE8;--gray-400:#9E93AA;
+      --gray-500:#766D82;--gray-600:#554E60;--gray-700:#38323F;--gray-800:#201C26;--gray-900:#100D14;
+      --success:#0daa6a;--danger:#dc2626;--warning:#d97706;
+      --gradient:linear-gradient(135deg,#7B3FAD 0%,#5B2D8B 45%,#2d1040 100%);
+      --gradient-soft:linear-gradient(135deg,#9B5AC8 0%,#5B2D8B 100%);
+      --font-ui:'IBM Plex Sans','Helvetica Neue',Arial,sans-serif;
+      --font-mono:'IBM Plex Mono','Courier New',monospace;
+      --r-sm:0.5rem;--r-md:0.75rem;--r-lg:1rem;--r-xl:1.5rem;--r-full:9999px;
+      --shadow-sm:0 2px 8px rgba(91,45,139,0.10);--shadow-md:0 6px 20px rgba(91,45,139,0.15);
+      --shadow-lg:0 15px 40px rgba(91,45,139,0.20);
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html{scroll-behavior:smooth;}
+    body{font-family:var(--font-ui);background:var(--pu-900);color:var(--white);min-height:100vh;-webkit-font-smoothing:antialiased;}
+    a{text-decoration:none;color:inherit;}
+    button{cursor:pointer;font-family:inherit;}
+    ::-webkit-scrollbar{width:5px;}
+    ::-webkit-scrollbar-track{background:var(--pu-800);}
+    ::-webkit-scrollbar-thumb{background:var(--pu-500);border-radius:var(--r-full);}
+
+    /* NAV */
+    .nav{position:sticky;top:0;z-index:100;height:62px;display:flex;align-items:center;padding:0 2rem;background:rgba(26,8,32,0.97);backdrop-filter:blur(24px);border-bottom:1px solid rgba(155,90,200,0.15);}
+    .nav-inner{max-width:1200px;width:100%;margin:0 auto;display:flex;align-items:center;justify-content:space-between;}
+    .nav-brand{display:flex;align-items:center;gap:0.75rem;font-weight:700;font-size:1rem;color:var(--white);}
+    .nav-brand img{height:34px;width:auto;}
+    .nav-brand span{opacity:0.5;font-weight:300;margin:0 0.5rem;}
+    .nav-brand em{font-style:normal;color:var(--pu-300);font-size:0.875rem;font-weight:500;}
+    .nav-links{display:flex;gap:0.25rem;}
+    .nav-links a{padding:0.4rem 0.875rem;border-radius:var(--r-md);font-size:0.8125rem;font-weight:500;color:rgba(255,255,255,0.55);transition:all 0.2s;}
+    .nav-links a:hover,.nav-links a.active{color:var(--white);background:rgba(155,90,200,0.18);}
+    .nav-links a.btn-primary{background:var(--gradient-soft);color:var(--white) !important;padding:0.4rem 1rem;border-radius:var(--r-full);}
+
+    /* PAGE */
+    .page{max-width:1200px;margin:0 auto;padding:2.5rem 2rem 4rem;}
+    .page-header{margin-bottom:2rem;}
+    .page-title{font-size:1.75rem;font-weight:700;color:var(--white);letter-spacing:-0.02em;margin-bottom:0.375rem;}
+    .page-sub{font-size:0.875rem;color:rgba(255,255,255,0.45);font-weight:400;}
+    .page-sub a{color:var(--pu-300);}
+
+    /* UPLOAD CARD */
+    .upload-card{background:rgba(255,255,255,0.04);border:1px solid rgba(155,90,200,0.2);border-radius:var(--r-xl);padding:2rem;margin-bottom:2rem;}
+    .upload-card-title{font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.12em;color:var(--pu-300);font-weight:600;margin-bottom:1.5rem;display:flex;align-items:center;gap:0.5rem;}
+    .upload-card-title::after{content:'';flex:1;height:1px;background:rgba(155,90,200,0.15);}
+
+    .carrier-tabs{display:flex;gap:0.5rem;margin-bottom:1.75rem;flex-wrap:wrap;}
+    .carrier-tab{display:flex;align-items:center;gap:0.625rem;padding:0.6rem 1.25rem;border-radius:var(--r-full);border:1.5px solid rgba(155,90,200,0.2);background:transparent;color:rgba(255,255,255,0.45);font-family:var(--font-ui);font-size:0.8125rem;font-weight:600;transition:all 0.2s;cursor:pointer;letter-spacing:0.04em;}
+    .carrier-tab:hover{border-color:rgba(155,90,200,0.45);color:rgba(255,255,255,0.75);}
+    .carrier-tab.active{background:var(--gradient-soft);border-color:transparent;color:var(--white);box-shadow:0 4px 16px rgba(91,45,139,0.4);}
+    .carrier-tab .dot{width:8px;height:8px;border-radius:50%;}
+    .dot-dhl{background:#FFCC00;} .dot-ups{background:#FFB500;} .dot-fedex{background:#FF6600;}
+
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;}
+    .form-group{display:flex;flex-direction:column;gap:0.5rem;}
+    .form-group.full{grid-column:1/-1;}
+    .form-label{font-size:0.75rem;font-weight:600;color:rgba(255,255,255,0.5);letter-spacing:0.08em;text-transform:uppercase;}
+    .form-input{background:rgba(255,255,255,0.07);border:1px solid rgba(155,90,200,0.25);border-radius:var(--r-md);padding:0.75rem 1rem;font-family:var(--font-ui);font-size:0.9375rem;color:var(--white);outline:none;transition:all 0.25s;}
+    .form-input::placeholder{color:rgba(255,255,255,0.22);}
+    .form-input:focus{border-color:var(--pu-400);background:rgba(255,255,255,0.1);box-shadow:0 0 0 3px rgba(155,90,200,0.15);}
+
+    /* DROP ZONE */
+    .drop-zone{border:2px dashed rgba(155,90,200,0.3);border-radius:var(--r-xl);padding:2.5rem 1.5rem;text-align:center;cursor:pointer;transition:all 0.25s;position:relative;background:rgba(255,255,255,0.02);}
+    .drop-zone:hover,.drop-zone.dragover{border-color:var(--pu-400);background:rgba(155,90,200,0.08);}
+    .drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
+    .drop-icon{font-size:2.25rem;color:var(--pu-400);margin-bottom:0.75rem;display:block;}
+    .drop-title{font-size:1rem;font-weight:600;color:var(--white);margin-bottom:0.375rem;}
+    .drop-sub{font-size:0.8125rem;color:rgba(255,255,255,0.35);}
+    .drop-file-name{font-family:var(--font-mono);font-size:0.8125rem;color:var(--pu-300);margin-top:0.75rem;padding:0.375rem 0.875rem;background:rgba(155,90,200,0.15);border-radius:var(--r-full);display:inline-block;}
+
+    .btn-upload{width:100%;padding:0.9375rem;background:var(--gradient-soft);color:var(--white);border:none;border-radius:var(--r-lg);font-family:var(--font-ui);font-size:0.9375rem;font-weight:700;letter-spacing:0.04em;display:flex;align-items:center;justify-content:center;gap:0.625rem;box-shadow:0 4px 20px rgba(91,45,139,0.45);transition:all 0.25s;margin-top:1.5rem;}
+    .btn-upload:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(123,63,173,0.55);}
+    .btn-upload:disabled{opacity:0.5;cursor:not-allowed;transform:none;}
+
+    /* RESULT CARD */
+    .result-card{background:rgba(13,170,106,0.08);border:1px solid rgba(13,170,106,0.3);border-radius:var(--r-xl);padding:1.5rem 1.75rem;display:none;animation:fadeIn 0.4s ease;}
+    .result-card.show{display:block;}
+    .result-header{display:flex;align-items:center;gap:0.875rem;margin-bottom:1.25rem;}
+    .result-icon{width:44px;height:44px;border-radius:50%;background:rgba(13,170,106,0.2);display:flex;align-items:center;justify-content:center;color:#34d399;font-size:1.25rem;flex-shrink:0;}
+    .result-title{font-size:1rem;font-weight:700;color:var(--white);}
+    .result-sub{font-size:0.8125rem;color:rgba(255,255,255,0.45);margin-top:0.2rem;}
+    .result-ge{font-family:var(--font-mono);font-size:1.5rem;font-weight:700;color:var(--pu-300);letter-spacing:0.08em;margin-bottom:1rem;padding:0.75rem 1.25rem;background:rgba(155,90,200,0.12);border-radius:var(--r-lg);display:inline-block;border:1px solid rgba(155,90,200,0.25);}
+    .result-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0.875rem;}
+    .result-field label{font-size:0.625rem;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.35);display:block;margin-bottom:0.2rem;}
+    .result-field span{font-size:0.875rem;color:var(--white);font-weight:500;}
+    .btn-row{display:flex;gap:0.75rem;margin-top:1.25rem;flex-wrap:wrap;}
+    .btn-sm{padding:0.5rem 1rem;border-radius:var(--r-md);font-size:0.8125rem;font-weight:600;border:none;display:inline-flex;align-items:center;gap:0.375rem;cursor:pointer;font-family:var(--font-ui);transition:all 0.2s;letter-spacing:0.04em;}
+    .btn-sm.primary{background:var(--gradient-soft);color:var(--white);}
+    .btn-sm.outline{background:transparent;color:var(--pu-300);border:1px solid rgba(155,90,200,0.35);}
+    .btn-sm:hover{transform:translateY(-1px);}
+
+    /* RECENT UPLOADS TABLE */
+    .table-card{background:rgba(255,255,255,0.03);border:1px solid rgba(155,90,200,0.15);border-radius:var(--r-xl);overflow:hidden;}
+    .table-header{padding:1.25rem 1.5rem;border-bottom:1px solid rgba(155,90,200,0.1);display:flex;align-items:center;justify-content:space-between;}
+    .table-title{font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.12em;color:var(--pu-300);font-weight:600;}
+    table{width:100%;border-collapse:collapse;}
+    th{padding:0.75rem 1rem;text-align:left;font-size:0.625rem;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.35);font-weight:600;background:rgba(255,255,255,0.02);border-bottom:1px solid rgba(155,90,200,0.1);}
+    td{padding:0.875rem 1rem;font-size:0.8125rem;color:rgba(255,255,255,0.75);border-bottom:1px solid rgba(155,90,200,0.07);}
+    tr:last-child td{border-bottom:none;}
+    tr:hover td{background:rgba(155,90,200,0.06);}
+    .badge{display:inline-flex;align-items:center;gap:0.3rem;padding:0.25rem 0.625rem;border-radius:var(--r-full);font-size:0.6875rem;font-weight:600;letter-spacing:0.04em;}
+    .badge-dhl{background:rgba(255,204,0,0.15);color:#FFCC00;}
+    .badge-ups{background:rgba(255,181,0,0.15);color:#FFB500;}
+    .badge-fedex{background:rgba(77,20,140,0.3);color:#C084FC;}
+    .mono{font-family:var(--font-mono);font-size:0.8125rem;color:var(--pu-300);}
+    .empty-state{padding:3rem 1.5rem;text-align:center;color:rgba(255,255,255,0.25);font-size:0.875rem;}
+
+    @keyframes fadeIn{from{opacity:0;transform:translateY(-8px);}to{opacity:1;transform:translateY(0);}}
+    @media(max-width:768px){.form-grid{grid-template-columns:1fr;}.result-grid{grid-template-columns:1fr 1fr;}.carrier-tabs{gap:0.375rem;}.carrier-tab{padding:0.5rem 0.875rem;font-size:0.75rem;}}
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <div class="nav-brand">
+      <img src="../logo.png" alt="Garuda">
+      Garuda Express
+      <span>/</span>
+      <em>Waybill Portal</em>
+    </div>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/dashboard">Dashboard</a>
+      <a href="/Admin">Admin</a>
+      <a href="/" class="btn-primary"><i class="fas fa-search"></i> Track</a>
+    </div>
+  </div>
+</nav>
+
+<!-- PORTAL LOGIN WALL -->
+<div id="portalLoginWall" style="display:none;position:fixed;inset:0;background:rgba(26,8,32,0.97);z-index:9999;align-items:center;justify-content:center;padding:1rem;">
+  <div style="background:#1e1a28;border:1px solid rgba(155,90,200,0.35);border-radius:1.25rem;width:100%;max-width:400px;padding:2rem 2.25rem;box-shadow:0 20px 60px rgba(0,0,0,0.6);">
+    <div style="text-align:center;margin-bottom:1.75rem;">
+      <div style="font-size:2rem;margin-bottom:0.5rem;">🔒</div>
+      <div style="font-size:1.1rem;font-weight:800;color:#fff;letter-spacing:-0.01em;">Portal Sign In</div>
+      <div style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin-top:0.35rem;">Garuda Express Waybill Portal</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:0.875rem;">
+      <div>
+        <label style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.4);display:block;margin-bottom:0.4rem;">Username</label>
+        <input id="pl_user" type="text" placeholder="Enter username" autocomplete="username"
+          style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(155,90,200,0.3);border-radius:0.625rem;padding:0.75rem 1rem;font-size:0.9375rem;color:#fff;outline:none;font-family:inherit;"
+          onfocus="this.style.borderColor='#9B5AC8'" onblur="this.style.borderColor='rgba(155,90,200,0.3)'"/>
+      </div>
+      <div>
+        <label style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.4);display:block;margin-bottom:0.4rem;">Password</label>
+        <input id="pl_pass" type="password" placeholder="Enter password" autocomplete="current-password"
+          style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(155,90,200,0.3);border-radius:0.625rem;padding:0.75rem 1rem;font-size:0.9375rem;color:#fff;outline:none;font-family:inherit;"
+          onfocus="this.style.borderColor='#9B5AC8'" onblur="this.style.borderColor='rgba(155,90,200,0.3)'"/>
+      </div>
+      <div id="pl_err" style="font-size:0.8rem;color:#f87171;min-height:1rem;text-align:center;"></div>
+      <button id="pl_btn" onclick="doPortalLogin()"
+        style="width:100%;padding:0.875rem;background:linear-gradient(135deg,#9B5AC8,#5B2D8B);color:#fff;border:none;border-radius:0.625rem;font-family:inherit;font-size:0.9375rem;font-weight:700;cursor:pointer;letter-spacing:0.03em;">
+        Sign In
+      </button>
+    </div>
+    <div style="text-align:center;margin-top:1.25rem;">
+      <a href="/" style="font-size:0.8rem;color:rgba(255,255,255,0.35);text-decoration:none;">← Back to Tracking</a>
+    </div>
+  </div>
+</div>
+
+<div id="portalApp" style="display:none;">
+<div class="page">
+  <div class="page-header">
+    <h1 class="page-title">Waybill Upload Portal</h1>
+    <p class="page-sub">Upload original DHL, UPS, or FedEx waybills — all data is extracted automatically and a Garuda Tracking ID is assigned.</p>
+  </div>
+
+  <!-- UPLOAD FORM -->
+  <div class="upload-card">
+    <div class="upload-card-title"><i class="fas fa-file-upload"></i> Upload & Process Waybill</div>
+
+    <!-- Carrier Selector -->
+    <div class="carrier-tabs">
+      <button class="carrier-tab active" data-carrier="DHL" onclick="selectCarrier('DHL',this)">
+        <span class="dot dot-dhl"></span> DHL
+      </button>
+      <button class="carrier-tab" data-carrier="UPS" onclick="selectCarrier('UPS',this)">
+        <span class="dot dot-ups"></span> UPS
+      </button>
+      <button class="carrier-tab" data-carrier="FEDEX" onclick="selectCarrier('FEDEX',this)">
+        <span class="dot dot-fedex"></span> FedEx
+      </button>
+    </div>
+
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Customer Name *</label>
+        <input type="text" class="form-input" id="customerName" placeholder="e.g. Ravi Kumar" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Carrier Tracking No. (optional)</label>
+        <input type="text" class="form-input" id="manualTrackNum" placeholder="Auto-extracted from waybill PDF">
+      </div>
+      <div class="form-group">
+        <label class="form-label">From Address (optional)</label>
+        <input type="text" class="form-input" id="fromAddress" placeholder="Sender address">
+      </div>
+      <div class="form-group">
+        <label class="form-label">To Address (optional)</label>
+        <input type="text" class="form-input" id="toAddress" placeholder="Recipient address">
+      </div>
+
+      <!-- Drop Zone -->
+      <div class="form-group full">
+        <label class="form-label">Waybill File (PDF or Image) *</label>
+        <div class="drop-zone" id="dropZone">
+          <input type="file" id="waybillFile" accept=".pdf,.png,.jpg,.jpeg" onchange="handleFileSelect(this)">
+          <i class="fas fa-cloud-upload-alt drop-icon"></i>
+          <div class="drop-title">Drop waybill here or click to browse</div>
+          <div class="drop-sub">Supports PDF, PNG, JPG — max 10MB</div>
+          <div class="drop-file-name" id="fileName" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn-upload" id="uploadBtn" onclick="uploadWaybill()" disabled>
+      <i class="fas fa-magic"></i> Process Waybill & Assign Garuda ID
+    </button>
+  </div>
+
+  <!-- RESULT -->
+  <div class="result-card" id="resultCard">
+    <div class="result-header">
+      <div class="result-icon"><i class="fas fa-check"></i></div>
+      <div>
+        <div class="result-title">Waybill Processed Successfully</div>
+        <div class="result-sub" id="resultCarrierLine">DHL waybill mapped to Garuda ID</div>
+      </div>
+    </div>
+    <div class="result-ge" id="resultGE">GE-2025-0001</div>
+    <div class="result-grid" id="resultGrid"></div>
+    <div class="btn-row">
+      <button class="btn-sm primary" onclick="openWaybill()"><i class="fas fa-print"></i> View / Print Waybill</button>
+      <button class="btn-sm outline" onclick="openEditModal(lastGE)"><i class="fas fa-edit"></i> Edit Details</button>
+      <button class="btn-sm outline" onclick="copyGE()"><i class="fas fa-copy"></i> Copy GE Number</button>
+      <button class="btn-sm outline" onclick="resetForm()"><i class="fas fa-plus"></i> Upload Another</button>
+    </div>
+  </div>
+
+  <!-- RECENT -->
+  <div class="table-card" id="recentTable">
+    <div class="table-header">
+      <span class="table-title"><i class="fas fa-history"></i>&nbsp; Recent Uploads (This Session)</span>
+      <button class="btn-sm outline" onclick="loadRecent()" style="padding:0.3rem 0.75rem;font-size:0.75rem;"><i class="fas fa-refresh"></i> Refresh</button>
+    </div>
+    <div id="recentBody"><div class="empty-state"><i class="fas fa-inbox" style="font-size:1.5rem;display:block;margin-bottom:0.5rem;opacity:0.4;"></i>No waybills uploaded yet this session</div></div>
+  </div>
+</div>
+<script>
+  let selectedCarrier = 'DHL';
+  let lastGE = '';
+  let editingGE = '';
+  let token = localStorage.getItem('garudaPortalToken') || localStorage.getItem('garudaAdminToken');
+
+  // ── PORTAL LOGIN WALL ─────────────────────────────────
+  function checkPortalAuth() {
+    if (!token) { showPortalLogin(); return false; }
+    return true;
+  }
+
+  function showPortalLogin() {
+    document.getElementById('portalApp').style.display = 'none';
+    document.getElementById('portalLoginWall').style.display = 'flex';
+  }
+
+  function hidePortalLogin() {
+    document.getElementById('portalLoginWall').style.display = 'none';
+    document.getElementById('portalApp').style.display = 'block';
+    loadRecent();
+  }
+
+  async function doPortalLogin() {
+    const u = document.getElementById('pl_user').value.trim();
+    const p = document.getElementById('pl_pass').value.trim();
+    if (!u || !p) { document.getElementById('pl_err').textContent = 'Enter username and password.'; return; }
+    const btn = document.getElementById('pl_btn');
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    try {
+      const res = await fetch('/api/portal/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username:u,password:p}) });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Invalid credentials');
+      token = data.token;
+      localStorage.setItem('garudaPortalToken', token);
+      document.getElementById('pl_err').textContent = '';
+      hidePortalLogin();
+    } catch(e) {
+      document.getElementById('pl_err').textContent = e.message;
+    } finally { btn.disabled = false; btn.textContent = 'Sign In'; }
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && document.getElementById('portalLoginWall').style.display !== 'none') doPortalLogin();
+  });
+
+  // Init: check auth
+  if (!token) { showPortalLogin(); } else { hidePortalLogin(); }
+
+  function selectCarrier(c, el) {
+    selectedCarrier = c;
+    document.querySelectorAll('.carrier-tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+  }
+
+  function handleFileSelect(input) {
+    const file = input.files[0];
+    const nameEl = document.getElementById('fileName');
+    if (file) {
+      nameEl.textContent = file.name;
+      nameEl.style.display = 'inline-block';
+      document.getElementById('uploadBtn').disabled = false;
+    }
+  }
+
+  const dz = document.getElementById('dropZone');
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      const fi = document.getElementById('waybillFile');
+      const dt = new DataTransfer(); dt.items.add(file); fi.files = dt.files;
+      handleFileSelect(fi);
+    }
+  });
+
+  async function uploadWaybill() {
+    const customerName = document.getElementById('customerName').value.trim();
+    const file = document.getElementById('waybillFile').files[0];
+    if (!customerName) { showToast('Please enter a customer name', 'error'); return; }
+    if (!file)         { showToast('Please select a waybill file', 'error'); return; }
+
+    const btn = document.getElementById('uploadBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing…';
+
+    const fd = new FormData();
+    fd.append('waybill', file);
+    fd.append('carrier', selectedCarrier);
+    fd.append('customerName', customerName);
+
+    const fromAddr = document.getElementById('fromAddress').value.trim();
+    const toAddr   = document.getElementById('toAddress').value.trim();
+    const manualTN = document.getElementById('manualTrackNum').value.trim();
+    if (fromAddr) fd.append('fromAddress', fromAddr);
+    if (toAddr)   fd.append('toAddress', toAddr);
+    if (manualTN) fd.append('manualTrackingNumber', manualTN);
+
+    try {
+      const res  = await fetch('/api/portal/upload', { method:'POST', headers:{'x-admin-token':token}, body:fd });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Upload failed');
+      lastGE = data.geNumber;
+      showResult(data);
+      loadRecent();
+      showToast('✓ Waybill processed — ' + data.geNumber, 'success');
+    } catch(e) {
+      showToast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-magic"></i> Process Waybill & Assign Garuda ID';
+    }
+  }
+
+  function showResult(data) {
+    const p = data.parsed || {};
+    document.getElementById('resultGE').textContent = data.geNumber;
+    document.getElementById('resultCarrierLine').textContent = 'Waybill processed — Garuda ID assigned';
+    document.getElementById('resultGrid').innerHTML = `
+      <div class="result-field"><label>Carrier Track No.</label><span class="mono" style="font-size:0.8rem">${p.trackingNumber || '—'}</span></div>
+      <div class="result-field"><label>Service Type</label><span>${p.serviceType || 'Garuda Express'}</span></div>
+      <div class="result-field"><label>Pieces</label><span>${p.pieces || '1'}</span></div>
+      <div class="result-field"><label>From</label><span>${p.fromName || (p.fromAddress ? p.fromAddress.split(',')[0] : '—')}</span></div>
+      <div class="result-field"><label>To</label><span>${p.toName || (p.toAddress ? p.toAddress.split(',')[0] : '—')}</span></div>
+      <div class="result-field"><label>Weight</label><span>${p.weight || '—'}</span></div>
+      <div class="result-field"><label>Dimensions</label><span>${p.dimensions || '—'}</span></div>
+      <div class="result-field"><label>Ship Date</label><span>${p.shipDate || 'Today'}</span></div>
+      ${p.description ? `<div class="result-field" style="grid-column:1/-1"><label>Contents</label><span>${p.description}</span></div>` : ''}
+    `;
+    document.getElementById('resultCard').classList.add('show');
+    document.getElementById('resultCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function openWaybill() {
+    if (!lastGE) return;
+    window.open('/api/waybill/' + lastGE + '/html?token=' + encodeURIComponent(token), '_blank');
+  }
+
+  function copyGE() {
+    navigator.clipboard.writeText(lastGE).then(() => showToast('GE number copied!', 'success'));
+  }
+
+  function resetForm() {
+    document.getElementById('resultCard').classList.remove('show');
+    document.getElementById('customerName').value = '';
+    document.getElementById('fromAddress').value = '';
+    document.getElementById('toAddress').value = '';
+    document.getElementById('manualTrackNum').value = '';
+    document.getElementById('waybillFile').value = '';
+    document.getElementById('fileName').style.display = 'none';
+    document.getElementById('uploadBtn').disabled = true;
+    lastGE = '';
+  }
+
+  // ── EDIT MODAL ────────────────────────────────────────────
+  async function openEditModal(ge) {
+    if (!ge) return;
+    editingGE = ge;
+    document.getElementById('edit_ge').value = ge;
+    document.getElementById('editModal').style.display = 'flex';
+    try {
+      const res  = await fetch('/api/shipments/' + ge, { headers: { 'x-admin-token': token } });
+      const data = await res.json();
+      if (!data.success || !data.shipment) return;
+      const s = data.shipment;
+      document.getElementById('edit_customer').value   = s.customerName || '';
+      document.getElementById('edit_carrier_tn').value = s.carrierTrackingNumber || '';
+      document.getElementById('edit_from_name').value  = s.fromName || '';
+      document.getElementById('edit_from_addr').value  = s.fromAddress || '';
+      document.getElementById('edit_to_name').value    = s.toName || '';
+      document.getElementById('edit_to_addr').value    = s.toAddress || '';
+      document.getElementById('edit_weight').value     = s.weight || '';
+      document.getElementById('edit_dims').value       = s.dimensions || '';
+      document.getElementById('edit_pieces').value     = s.pieces || '';
+      document.getElementById('edit_shipdate').value   = s.shipDate || '';
+      document.getElementById('edit_desc').value       = s.description || '';
+    } catch(e) { console.error('Edit prefill error:', e); }
+  }
+
+  function closeEditModal() {
+    document.getElementById('editModal').style.display = 'none';
+    editingGE = '';
+  }
+
+  async function saveEdit() {
+    if (!editingGE) return;
+    const btn = document.getElementById('editSaveBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving…';
+    const body = {
+      customerName:          document.getElementById('edit_customer').value.trim(),
+      carrierTrackingNumber: document.getElementById('edit_carrier_tn').value.trim(),
+      fromName:              document.getElementById('edit_from_name').value.trim(),
+      fromAddress:           document.getElementById('edit_from_addr').value.trim(),
+      toName:                document.getElementById('edit_to_name').value.trim(),
+      toAddress:             document.getElementById('edit_to_addr').value.trim(),
+      weight:                document.getElementById('edit_weight').value.trim(),
+      dimensions:            document.getElementById('edit_dims').value.trim(),
+      pieces:                document.getElementById('edit_pieces').value.trim(),
+      shipDate:              document.getElementById('edit_shipdate').value.trim(),
+      description:           document.getElementById('edit_desc').value.trim(),
+    };
+    try {
+      const res  = await fetch('/api/shipments/' + editingGE, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Save failed');
+      showToast('✓ Shipment updated successfully', 'success');
+      closeEditModal();
+      loadRecent();
+    } catch(e) {
+      showToast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+    }
+  }
+
+  document.getElementById('editModal').addEventListener('click', e => {
+    if (e.target === document.getElementById('editModal')) closeEditModal();
+  });
+
+  // ── RECENT TABLE ──────────────────────────────────────────
+  async function loadRecent() {
+    try {
+      const res  = await fetch('/api/shipments?carrier=ALL', { headers: { 'x-admin-token': token } });
+      const data = await res.json();
+      if (!data.success) return;
+      const shipments = data.shipments.slice(0, 15);
+      const body = document.getElementById('recentBody');
+      if (!shipments.length) {
+        body.innerHTML = '<div class="empty-state"><i class="fas fa-inbox" style="font-size:1.5rem;display:block;margin-bottom:0.5rem;opacity:0.4;"></i>No shipments yet</div>';
+        return;
+      }
+      body.innerHTML = `
+        <table>
+          <thead><tr>
+            <th>Garuda ID</th><th>Carrier</th><th>Carrier Tracking No.</th>
+            <th>Customer</th><th>Date</th><th>Actions</th>
+          </tr></thead>
+          <tbody>
+            ${shipments.map(s => `
+              <tr>
+                <td class="mono">${s.geTrackingNumber}</td>
+                <td><span class="badge badge-${s.carrier.toLowerCase()}">${s.carrier}</span></td>
+                <td class="mono" style="font-size:0.75rem">${s.carrierTrackingNumber}</td>
+                <td>${esc(s.customerName)}</td>
+                <td style="white-space:nowrap">${fmtDate(s.createdAt || s.date)}</td>
+                <td style="white-space:nowrap">
+                  <button class="btn-sm primary" onclick="viewWaybill('${s.geTrackingNumber}')" title="View / Print Waybill" style="padding:0.25rem 0.625rem;font-size:0.7rem;margin-right:4px;">
+                    <i class="fas fa-print"></i>
+                  </button>
+                  <button class="btn-sm outline" onclick="openEditModal('${s.geTrackingNumber}')" title="Edit Details" style="padding:0.25rem 0.625rem;font-size:0.7rem;">
+                    <i class="fas fa-edit"></i>
+                  </button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    } catch(e) { console.error(e); }
+  }
+
+  function viewWaybill(ge) {
+    window.open('/api/waybill/' + ge + '/html?token=' + encodeURIComponent(token), '_blank');
+  }
+
+  function fmtDate(d) {
+    try { return new Date(d).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }); }
+    catch { return d; }
+  }
+
+  function esc(s) {
+    const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+  }
+
+  // ── TOAST ─────────────────────────────────────────────────
+  let _toastTimer = null;
+  function showToast(msg, type = 'info') {
+    let t = document.getElementById('toast-portal');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'toast-portal';
+      t.style.cssText = 'position:fixed;bottom:2rem;right:2rem;padding:0.875rem 1.25rem;border-radius:0.75rem;display:none;align-items:center;gap:0.625rem;font-size:0.875rem;font-weight:500;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,0.4);max-width:340px;font-family:var(--font-ui);';
+      document.body.appendChild(t);
+    }
+    const colors = { success:'#065f46', error:'#7f1d1d', info:'#1e1b4b' };
+    const icons  = { success:'fa-check-circle', error:'fa-exclamation-circle', info:'fa-info-circle' };
+    t.style.background = colors[type] || colors.info;
+    t.style.border = type==='success' ? '1px solid rgba(52,211,153,0.3)' : type==='error' ? '1px solid rgba(248,113,113,0.3)' : '1px solid rgba(155,90,200,0.3)';
+    t.innerHTML = `<i class="fas ${icons[type]||icons.info}" style="color:${type==='success'?'#34d399':type==='error'?'#f87171':'#a78bfa'}"></i><span style="color:#fff">${msg}</span>`;
+    t.style.display = 'flex';
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => { t.style.display = 'none'; }, 3500);
+  }
+
+  // loadRecent called after login (hidePortalLogin calls it)
+</script>
+
+<!-- EDIT MODAL -->
+<div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9000;align-items:center;justify-content:center;padding:1rem;">
+  <div style="background:#1e1a28;border:1px solid rgba(155,90,200,0.3);border-radius:1rem;width:100%;max-width:580px;max-height:90vh;overflow-y:auto;">
+    <div style="padding:1.25rem 1.5rem;border-bottom:1px solid rgba(155,90,200,0.15);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:0.875rem;font-weight:700;color:#C9A0F0;display:flex;align-items:center;gap:0.5rem;"><i class="fas fa-edit"></i> Edit Shipment Details</div>
+      <button onclick="closeEditModal()" style="background:none;border:none;color:rgba(255,255,255,0.5);font-size:1.25rem;cursor:pointer;line-height:1;">&times;</button>
+    </div>
+    <div style="padding:1.5rem;display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+      <div style="grid-column:1/-1"><label class="form-label">GE Tracking Number</label><input class="form-input" id="edit_ge" readonly style="opacity:0.5;cursor:not-allowed;margin-top:0.375rem;"></div>
+      <div><label class="form-label">Customer Name</label><input class="form-input" id="edit_customer" placeholder="Customer name" style="margin-top:0.375rem;"></div>
+      <div><label class="form-label">Carrier Tracking No.</label><input class="form-input" id="edit_carrier_tn" placeholder="Carrier tracking number" style="margin-top:0.375rem;"></div>
+      <div><label class="form-label">From Name / Sender</label><input class="form-input" id="edit_from_name" placeholder="Sender name" style="margin-top:0.375rem;"></div>
+      <div><label class="form-label">From Address</label><input class="form-input" id="edit_from_addr" placeholder="Sender address" style="margin-top:0.375rem;"></div>
+      <div><label class="form-label">To Name / Recipient</label><input class="form-input" id="edit_to_name" placeholder="Recipient name" style="margin-top:0.375rem;"></div>
+      <div><label class="form-label">To Address</label><input class="form-input" id="edit_to_addr" placeholder="Recipient address" style="margin-top:0.375rem;"></div>
+      <div><label class="form-label">Weight</label><input class="form-input" id="edit_weight" placeholder="e.g. 21.83 KG" style="margin-top:0.375rem;"></div>
+      <div><label class="form-label">Dimensions</label><input class="form-input" id="edit_dims" placeholder="e.g. 37x50x30 CM" style="margin-top:0.375rem;"></div>
+      <div><label class="form-label">Pieces</label><input class="form-input" id="edit_pieces" placeholder="e.g. 1" style="margin-top:0.375rem;"></div>
+      <div><label class="form-label">Ship Date</label><input class="form-input" id="edit_shipdate" placeholder="e.g. 17MAR26" style="margin-top:0.375rem;"></div>
+      <div style="grid-column:1/-1"><label class="form-label">Description of Contents</label><input class="form-input" id="edit_desc" placeholder="e.g. Herbal Products, Documents" style="margin-top:0.375rem;"></div>
+    </div>
+    <div style="padding:1rem 1.5rem;border-top:1px solid rgba(155,90,200,0.15);display:flex;gap:0.75rem;justify-content:flex-end;">
+      <button class="btn-sm outline" onclick="closeEditModal()">Cancel</button>
+      <button class="btn-sm primary" id="editSaveBtn" onclick="saveEdit()"><i class="fas fa-save"></i> Save Changes</button>
+    </div>
+  </div>
+</div>
+
+</div><!-- end #portalApp -->
+</body>
+</html>

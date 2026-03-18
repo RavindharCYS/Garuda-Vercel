@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "buildCommand": "npm install",
+  "outputDirectory": ".",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 30,
+      "memory": 512
+    }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index.js" },
+    { "source": "/Admin",      "destination": "/Admin/index.html" },
+    { "source": "/Admin/",     "destination": "/Admin/index.html" },
+    { "source": "/portal",     "destination": "/portal/index.html" },
+    { "source": "/portal/",    "destination": "/portal/index.html" },
+    { "source": "/dashboard",  "destination": "/dashboard/index.html" },
+    { "source": "/dashboard/", "destination": "/dashboard/index.html" }
+  ]
+}

@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Garuda Express — Admin Console</title>
+<link rel="icon" href="../logo.png" type="image/png">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+<style>
+:root{
+  --pu-900:#0d0413;--pu-800:#1a0820;--pu-700:#2d1040;--pu-600:#3d1f5c;--pu-500:#5B2D8B;--pu-400:#7B3FAD;--pu-300:#9B5AC8;--pu-200:#C08EE0;--pu-100:#DFC4F2;--pu-50:#F2E8FA;
+  --white:#fff;--gray-50:#f8f8fb;--gray-100:#f0edf5;--gray-200:#ddd8e8;--gray-400:#9e93aa;--gray-500:#766d82;--gray-600:#554e60;--gray-700:#38323f;--gray-800:#201c26;
+  --success:#0daa6a;--danger:#dc2626;--warn:#d97706;--info:#0891b2;
+  --sidebar:220px;
+  --font:'IBM Plex Sans',sans-serif;--mono:'IBM Plex Mono',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;font-family:var(--font);background:var(--pu-900);color:var(--white);-webkit-font-smoothing:antialiased;}
+a{text-decoration:none;color:inherit;}button{cursor:pointer;font-family:var(--font);}
+input,select,textarea{font-family:var(--font);}
+::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:var(--pu-800)}::-webkit-scrollbar-thumb{background:var(--pu-400);border-radius:9999px}
+
+/* LOGIN */
+#login-screen{position:fixed;inset:0;background:var(--pu-900);display:flex;align-items:center;justify-content:center;z-index:9999;}
+.lc{background:rgba(255,255,255,0.04);border:1px solid rgba(155,90,200,0.2);border-radius:16px;padding:2.5rem;width:380px;text-align:center;}
+.lc h2{font-size:1.5rem;font-weight:800;margin-bottom:0.375rem;}
+.lc p{font-size:0.875rem;color:var(--gray-400);margin-bottom:2rem;}
+.lc input{width:100%;padding:0.75rem 1rem;margin-bottom:0.75rem;background:rgba(255,255,255,0.07);border:1px solid rgba(155,90,200,0.25);border-radius:10px;color:#fff;font-size:0.9375rem;outline:none;}
+.lc input:focus{border-color:var(--pu-300);background:rgba(255,255,255,0.1);}
+.lc button{width:100%;padding:0.875rem;background:linear-gradient(135deg,#7B3FAD,#5B2D8B);color:#fff;border:none;border-radius:10px;font-weight:700;font-size:1rem;}
+#login-err{color:#f87171;font-size:0.8125rem;margin-top:0.5rem;min-height:1.2em;}
+
+/* LAYOUT */
+#app{display:none;height:100vh;overflow:hidden;}
+#app.show{display:flex;}
+
+/* SIDEBAR */
+.sidebar{width:var(--sidebar);background:var(--pu-800);border-right:1px solid rgba(155,90,200,0.15);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden;}
+.sb-brand{padding:1.25rem 1rem 1rem;border-bottom:1px solid rgba(155,90,200,0.15);}
+.sb-brand-inner{display:flex;align-items:center;gap:0.625rem;}
+.sb-brand-icon{font-size:1.5rem;}
+.sb-brand-text{font-size:0.875rem;font-weight:800;color:#fff;letter-spacing:0.02em;}
+.sb-brand-sub{font-size:0.625rem;color:var(--pu-200);letter-spacing:2px;text-transform:uppercase;margin-top:1px;}
+.sb-section{padding:0.875rem 0.75rem 0.25rem;font-size:0.625rem;text-transform:uppercase;letter-spacing:2px;color:var(--gray-500);font-weight:700;}
+.sb-nav{flex:1;overflow-y:auto;padding-bottom:1rem;}
+.sb-link{display:flex;align-items:center;gap:0.625rem;padding:0.5625rem 1rem;margin:0 0.5rem;border-radius:8px;font-size:0.8125rem;font-weight:500;color:rgba(255,255,255,0.5);transition:all 0.18s;cursor:pointer;}
+.sb-link:hover{color:#fff;background:rgba(155,90,200,0.12);}
+.sb-link.active{color:#fff;background:rgba(123,63,173,0.28);font-weight:600;}
+.sb-link i{width:16px;text-align:center;font-size:0.875rem;}
+.sb-link .badge{margin-left:auto;background:var(--pu-400);color:#fff;font-size:0.625rem;font-weight:700;padding:1px 6px;border-radius:9999px;}
+.sb-bottom{padding:0.875rem;border-top:1px solid rgba(155,90,200,0.15);}
+.sb-user{display:flex;align-items:center;gap:0.625rem;font-size:0.8125rem;}
+.sb-user-av{width:30px;height:30px;border-radius:50%;background:var(--pu-400);display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;}
+.sb-user-name{font-weight:600;color:#fff;}
+.sb-user-role{font-size:0.625rem;color:var(--gray-400);}
+.sb-logout{margin-top:0.625rem;width:100%;padding:0.5rem;background:rgba(220,38,38,0.12);border:1px solid rgba(220,38,38,0.2);border-radius:8px;color:#f87171;font-size:0.8125rem;font-weight:600;}
+.sb-logout:hover{background:rgba(220,38,38,0.2);}
+
+/* MAIN */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.topbar{height:58px;background:var(--pu-800);border-bottom:1px solid rgba(155,90,200,0.15);display:flex;align-items:center;padding:0 1.5rem;gap:1rem;flex-shrink:0;}
+.topbar-title{font-size:1rem;font-weight:700;color:#fff;flex:1;}
+.topbar-badge{display:flex;align-items:center;gap:0.375rem;font-size:0.75rem;color:var(--pu-200);background:rgba(123,63,173,0.15);padding:0.3125rem 0.75rem;border-radius:9999px;border:1px solid rgba(155,90,200,0.2);}
+.content{flex:1;overflow-y:auto;padding:1.5rem;}
+
+/* PANELS */
+.panel{display:none;}.panel.active{display:block;}
+
+/* STATS CARDS */
+.stats-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1rem;margin-bottom:1.5rem;}
+.stat-card{background:rgba(255,255,255,0.04);border:1px solid rgba(155,90,200,0.15);border-radius:12px;padding:1.25rem;position:relative;overflow:hidden;}
+.stat-card::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(123,63,173,0.1),transparent);pointer-events:none;}
+.stat-icon{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.125rem;margin-bottom:0.875rem;}
+.stat-val{font-size:1.75rem;font-weight:800;color:#fff;line-height:1;}
+.stat-lbl{font-size:0.75rem;color:var(--gray-400);margin-top:0.375rem;font-weight:500;}
+.stat-trend{font-size:0.6875rem;margin-top:0.25rem;font-weight:600;}
+
+/* QUICK ACTIONS */
+.qa-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0.875rem;margin-bottom:1.5rem;}
+.qa-card{background:rgba(255,255,255,0.04);border:1px solid rgba(155,90,200,0.15);border-radius:12px;padding:1.25rem;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:0.875rem;}
+.qa-card:hover{border-color:rgba(155,90,200,0.35);background:rgba(123,63,173,0.1);transform:translateY(-2px);}
+.qa-icon{width:42px;height:42px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0;}
+.qa-title{font-size:0.875rem;font-weight:700;color:#fff;}
+.qa-sub{font-size:0.75rem;color:var(--gray-400);margin-top:2px;}
+
+/* SECTION HEADER */
+.sec-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;}
+.sec-title{font-size:0.6875rem;text-transform:uppercase;letter-spacing:2px;color:var(--pu-200);font-weight:700;display:flex;align-items:center;gap:0.5rem;}
+.sec-title::after{content:'';flex:1;height:1px;background:rgba(155,90,200,0.15);}
+
+/* TABLE */
+.tbl-wrap{background:rgba(255,255,255,0.03);border:1px solid rgba(155,90,200,0.15);border-radius:12px;overflow:hidden;}
+.tbl-bar{padding:0.875rem 1rem;display:flex;align-items:center;gap:0.75rem;border-bottom:1px solid rgba(155,90,200,0.12);flex-wrap:wrap;}
+.tbl-search{flex:1;min-width:180px;max-width:320px;padding:0.5rem 0.875rem;background:rgba(255,255,255,0.06);border:1px solid rgba(155,90,200,0.2);border-radius:8px;color:#fff;font-size:0.875rem;outline:none;}
+.tbl-search:focus{border-color:var(--pu-300);}
+.tbl-search::placeholder{color:rgba(255,255,255,0.3);}
+.filter-btn{padding:0.4375rem 0.875rem;background:rgba(255,255,255,0.06);border:1px solid rgba(155,90,200,0.2);border-radius:8px;color:rgba(255,255,255,0.6);font-size:0.8125rem;font-weight:500;transition:all 0.18s;}
+.filter-btn:hover,.filter-btn.active{background:rgba(123,63,173,0.2);border-color:rgba(155,90,200,0.4);color:#fff;}
+.tbl-spacer{flex:1;}
+.tbl-count{font-size:0.75rem;color:var(--gray-400);}
+table{width:100%;border-collapse:collapse;}
+thead th{padding:0.625rem 0.875rem;text-align:left;font-size:0.6875rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--gray-500);font-weight:600;border-bottom:1px solid rgba(155,90,200,0.12);background:rgba(255,255,255,0.02);}
+tbody tr{border-bottom:1px solid rgba(155,90,200,0.08);transition:background 0.15s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:rgba(123,63,173,0.07);}
+td{padding:0.75rem 0.875rem;font-size:0.8125rem;color:rgba(255,255,255,0.8);}
+.td-mono{font-family:var(--mono);font-size:0.75rem;}
+.td-ge{font-family:var(--mono);font-size:0.8125rem;font-weight:700;color:var(--pu-200);}
+.carrier-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.6875rem;font-weight:800;letter-spacing:0.5px;}
+.cb-DHL{background:#FFCC00;color:#000;}.cb-UPS{background:#FFB500;color:#000;}.cb-FEDEX{background:#FF6600;color:#fff;}
+.td-actions{display:flex;align-items:center;gap:0.375rem;}
+.act-btn{width:28px;height:28px;border:none;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:0.75rem;transition:all 0.15s;}
+.act-edit{background:rgba(123,63,173,0.2);color:var(--pu-200);}
+.act-edit:hover{background:rgba(123,63,173,0.4);color:#fff;}
+.act-del{background:rgba(220,38,38,0.15);color:#f87171;}
+.act-del:hover{background:rgba(220,38,38,0.3);}
+.act-waybill{background:rgba(13,170,106,0.15);color:#34d399;}
+.act-waybill:hover{background:rgba(13,170,106,0.3);}
+.act-track{background:rgba(8,145,178,0.15);color:#38bdf8;}
+.act-track:hover{background:rgba(8,145,178,0.3);}
+.empty-row td{text-align:center;padding:3rem;color:var(--gray-500);font-size:0.875rem;}
+
+/* FORM */
+.form-card{background:rgba(255,255,255,0.04);border:1px solid rgba(155,90,200,0.2);border-radius:12px;padding:1.5rem;margin-bottom:1.25rem;}
+.form-title{font-size:0.6875rem;text-transform:uppercase;letter-spacing:2px;color:var(--pu-200);font-weight:700;margin-bottom:1.25rem;padding-bottom:0.75rem;border-bottom:1px solid rgba(155,90,200,0.15);display:flex;align-items:center;gap:0.5rem;}
+.fg{display:flex;flex-direction:column;gap:0.4375rem;margin-bottom:1rem;}
+.fg:last-child{margin-bottom:0;}
+.fl{display:grid;gap:1rem;}
+.fl-2{grid-template-columns:1fr 1fr;}.fl-3{grid-template-columns:1fr 1fr 1fr;}.fl-4{grid-template-columns:1fr 1fr 1fr 1fr;}
+label{font-size:0.6875rem;text-transform:uppercase;letter-spacing:1.5px;color:rgba(255,255,255,0.45);font-weight:600;}
+.fi{padding:0.6875rem 0.9375rem;background:rgba(255,255,255,0.07);border:1px solid rgba(155,90,200,0.2);border-radius:8px;color:#fff;font-size:0.9rem;outline:none;transition:all 0.2s;width:100%;}
+.fi:focus{border-color:var(--pu-300);background:rgba(255,255,255,0.1);}
+.fi::placeholder{color:rgba(255,255,255,0.2);}
+.fi-req{border-color:rgba(220,38,38,0.4);}
+select.fi option{background:var(--pu-700);color:#fff;}
+.ge-auto-display{font-family:var(--mono);font-size:1rem;font-weight:700;color:var(--pu-200);padding:0.6875rem 0.9375rem;background:rgba(155,90,200,0.1);border:1px solid rgba(155,90,200,0.3);border-radius:8px;display:flex;align-items:center;justify-content:space-between;}
+.ge-auto-display small{font-size:0.65rem;color:var(--gray-400);font-weight:400;font-family:var(--font);}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:0.5rem;padding:0.6875rem 1.25rem;border:none;border-radius:8px;font-weight:600;font-size:0.875rem;cursor:pointer;transition:all 0.2s;font-family:var(--font);}
+.btn-primary{background:linear-gradient(135deg,#7B3FAD,#5B2D8B);color:#fff;box-shadow:0 4px 16px rgba(91,45,139,0.35);}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 24px rgba(91,45,139,0.5);}
+.btn-secondary{background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.7);border:1px solid rgba(155,90,200,0.2);}
+.btn-secondary:hover{background:rgba(255,255,255,0.12);color:#fff;}
+.btn-danger{background:rgba(220,38,38,0.15);color:#f87171;border:1px solid rgba(220,38,38,0.3);}
+.btn-danger:hover{background:rgba(220,38,38,0.3);}
+.btn-success{background:rgba(13,170,106,0.15);color:#34d399;border:1px solid rgba(13,170,106,0.3);}
+.btn-row{display:flex;gap:0.75rem;flex-wrap:wrap;}
+
+/* MODAL */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:800;display:none;align-items:center;justify-content:center;}
+.overlay.show{display:flex;}
+.modal{background:var(--pu-800);border:1px solid rgba(155,90,200,0.25);border-radius:16px;width:min(640px,calc(100vw - 2rem));max-height:calc(100vh - 2rem);overflow-y:auto;box-shadow:0 24px 80px rgba(0,0,0,0.6);}
+.modal-hdr{padding:1.25rem 1.5rem;border-bottom:1px solid rgba(155,90,200,0.15);display:flex;align-items:center;justify-content:space-between;}
+.modal-title{font-size:1rem;font-weight:700;color:#fff;}
+.modal-close{width:32px;height:32px;border:none;background:rgba(255,255,255,0.07);border-radius:8px;color:rgba(255,255,255,0.5);font-size:1rem;display:flex;align-items:center;justify-content:center;transition:all 0.15s;}
+.modal-close:hover{background:rgba(255,255,255,0.15);color:#fff;}
+.modal-body{padding:1.5rem;}
+.modal-footer{padding:1rem 1.5rem;border-top:1px solid rgba(155,90,200,0.15);display:flex;justify-content:flex-end;gap:0.75rem;}
+
+/* STATUS BADGE */
+.status-badge{display:inline-flex;align-items:center;gap:0.25rem;padding:2px 8px;border-radius:9999px;font-size:0.6875rem;font-weight:600;}
+.sb-delivered{background:rgba(13,170,106,0.15);color:#34d399;}
+.sb-transit{background:rgba(234,179,8,0.15);color:#fbbf24;}
+.sb-pending{background:rgba(155,90,200,0.15);color:var(--pu-200);}
+.sb-exception{background:rgba(220,38,38,0.15);color:#f87171;}
+
+/* TRACKING PANEL */
+.track-result{background:rgba(255,255,255,0.04);border:1px solid rgba(155,90,200,0.15);border-radius:12px;padding:1.25rem;margin-top:1rem;}
+.track-hdr{display:flex;gap:1rem;align-items:flex-start;margin-bottom:1rem;}
+.track-status{font-size:1.125rem;font-weight:800;color:#fff;}
+.track-events{margin-top:1rem;border-top:1px solid rgba(155,90,200,0.1);padding-top:1rem;}
+.event-item{display:flex;gap:0.75rem;padding:0.5rem 0;position:relative;}
+.event-dot{width:10px;height:10px;border-radius:50%;background:var(--pu-400);flex-shrink:0;margin-top:3px;}
+.event-item:first-child .event-dot{background:#34d399;}
+.event-time{font-family:var(--mono);font-size:0.7rem;color:var(--gray-500);min-width:130px;}
+.event-status{font-size:0.8125rem;font-weight:600;color:#fff;}
+.event-loc{font-size:0.75rem;color:var(--gray-400);}
+
+/* API KEYS */
+.api-card{background:rgba(255,255,255,0.04);border:1px solid rgba(155,90,200,0.15);border-radius:12px;padding:1.25rem;margin-bottom:1rem;display:flex;align-items:center;gap:1rem;}
+.api-icon{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.25rem;flex-shrink:0;}
+.api-info{flex:1;}
+.api-name{font-size:0.9375rem;font-weight:700;color:#fff;}
+.api-env{font-family:var(--mono);font-size:0.75rem;color:var(--pu-200);margin-top:2px;}
+.api-status{font-size:0.75rem;margin-top:4px;font-weight:600;}
+.api-configured{color:#34d399;}.api-missing{color:#f87171;}
+.api-link{font-size:0.75rem;color:var(--pu-200);margin-top:4px;display:inline-flex;align-items:center;gap:4px;}
+
+/* WAYBILL PREVIEW */
+.wb-preview{display:flex;gap:1.5rem;align-items:flex-start;}
+.wb-preview-form{flex:1;}
+.wb-preview-frame{flex:0 0 380px;background:rgba(255,255,255,0.03);border:1px solid rgba(155,90,200,0.15);border-radius:12px;overflow:hidden;}
+.wb-preview-frame iframe{width:100%;height:520px;border:none;}
+
+/* TOAST */
+#toast{position:fixed;bottom:1.5rem;right:1.5rem;z-index:9000;display:flex;flex-direction:column;gap:0.5rem;pointer-events:none;}
+.toast-item{padding:0.75rem 1.25rem;border-radius:10px;font-size:0.875rem;font-weight:600;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,0.4);animation:toastIn 0.3s ease;max-width:340px;}
+.toast-success{background:rgba(13,170,106,0.9);}
+.toast-error{background:rgba(220,38,38,0.9);}
+.toast-info{background:rgba(91,45,139,0.95);}
+@keyframes toastIn{from{opacity:0;transform:translateX(60px);}to{opacity:1;transform:translateX(0);}}
+
+/* LOADING */
+.loading{display:flex;align-items:center;justify-content:center;padding:3rem;gap:0.75rem;color:var(--gray-400);}
+.spinner{width:20px;height:20px;border:2px solid rgba(155,90,200,0.2);border-top-color:var(--pu-300);border-radius:50%;animation:spin 0.7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="lc">
+    <div style="font-size:2.5rem;margin-bottom:0.75rem;">🦅</div>
+    <h2>Garuda Express</h2>
+    <p>Admin Console — Sign in to continue</p>
+    <input type="text" id="u" placeholder="Username" value="admin">
+    <input type="password" id="pw" placeholder="Password" value="">
+    <button onclick="doLogin()">Sign In</button>
+    <div id="login-err"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sb-brand">
+      <div class="sb-brand-inner">
+        <span class="sb-brand-icon">🦅</span>
+        <div>
+          <div class="sb-brand-text">Garuda Express</div>
+          <div class="sb-brand-sub">Admin Console</div>
+        </div>
+      </div>
+    </div>
+    <div class="sb-nav">
+      <div class="sb-section">Overview</div>
+      <a class="sb-link active" onclick="nav('dashboard')" id="sb-dashboard"><i class="fa fa-chart-pie"></i> Dashboard</a>
+      <div class="sb-section">Shipments</div>
+      <a class="sb-link" onclick="nav('shipments')" id="sb-shipments"><i class="fa fa-box-open"></i> All Shipments</a>
+      <a class="sb-link" onclick="nav('add-shipment')" id="sb-add-shipment"><i class="fa fa-plus-circle"></i> Add Shipment</a>
+      <div class="sb-section">Waybills</div>
+      <a class="sb-link" onclick="nav('waybill-portal')" id="sb-waybill-portal"><i class="fa fa-file-upload"></i> Upload Waybill</a>
+      <a class="sb-link" onclick="nav('waybill-generate')" id="sb-waybill-generate"><i class="fa fa-file-pdf"></i> Generate Waybill</a>
+      <div class="sb-section">Tracking</div>
+      <a class="sb-link" onclick="nav('tracking')" id="sb-tracking"><i class="fa fa-location-dot"></i> Live Tracking</a>
+      <a class="sb-link" onclick="nav('test-api')" id="sb-test-api"><i class="fa fa-flask"></i> Test Carrier API</a>
+      <div class="sb-section">Settings</div>
+      <a class="sb-link" onclick="nav('api-keys')" id="sb-api-keys"><i class="fa fa-key"></i> API Key Status</a>
+      <a class="sb-link" onclick="nav('settings')" id="sb-settings"><i class="fa fa-gear"></i> Settings</a>
+      <div class="sb-section">Links</div>
+      <a class="sb-link" href="/portal" target="_blank"><i class="fa fa-arrow-up-right-from-square"></i> Waybill Portal</a>
+      <a class="sb-link" href="/dashboard" target="_blank"><i class="fa fa-table"></i> Reports</a>
+      <a class="sb-link" href="/" target="_blank"><i class="fa fa-globe"></i> Public Site</a>
+    </div>
+    <div class="sb-bottom">
+      <div class="sb-user">
+        <div class="sb-user-av" id="sb-av">A</div>
+        <div><div class="sb-user-name" id="sb-uname">admin</div><div class="sb-user-role">Administrator</div></div>
+      </div>
+      <button class="sb-logout" onclick="doLogout()"><i class="fa fa-sign-out-alt"></i> Sign Out</button>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-title" id="topbar-title">Dashboard</div>
+      <div class="topbar-badge"><i class="fa fa-circle" style="color:#34d399;font-size:0.5rem;"></i> Online</div>
+      <div class="topbar-badge" id="tb-stats">Loading...</div>
+    </div>
+    <div class="content" id="content">
+
+      <!-- ── DASHBOARD ── -->
+      <div class="panel active" id="p-dashboard">
+        <div class="stats-grid" id="stats-cards">
+          <div class="loading"><div class="spinner"></div></div>
+        </div>
+        <div class="qa-grid">
+          <div class="qa-card" onclick="nav('add-shipment')"><div class="qa-icon" style="background:rgba(123,63,173,0.2);color:var(--pu-200);"><i class="fa fa-plus"></i></div><div><div class="qa-title">Add Shipment</div><div class="qa-sub">Map carrier tracking</div></div></div>
+          <div class="qa-card" onclick="nav('waybill-portal')"><div class="qa-icon" style="background:rgba(13,170,106,0.15);color:#34d399;"><i class="fa fa-file-upload"></i></div><div><div class="qa-title">Upload Waybill</div><div class="qa-sub">Auto-parse & assign GE#</div></div></div>
+          <div class="qa-card" onclick="nav('waybill-generate')"><div class="qa-icon" style="background:rgba(234,179,8,0.15);color:#fbbf24;"><i class="fa fa-file-pdf"></i></div><div><div class="qa-title">Generate Waybill</div><div class="qa-sub">Print Garuda waybill</div></div></div>
+          <div class="qa-card" onclick="nav('tracking')"><div class="qa-icon" style="background:rgba(8,145,178,0.15);color:#38bdf8;"><i class="fa fa-location-dot"></i></div><div><div class="qa-title">Track Shipment</div><div class="qa-sub">Live carrier tracking</div></div></div>
+        </div>
+        <div class="sec-hdr"><div class="sec-title"><i class="fa fa-history"></i>&nbsp;Recent Shipments</div><button class="btn btn-secondary" onclick="nav('shipments')" style="font-size:0.75rem;padding:0.375rem 0.75rem;">View All</button></div>
+        <div class="tbl-wrap"><table><thead><tr><th>GE Number</th><th>Customer</th><th>Carrier</th><th>Service</th><th>Date</th><th>Actions</th></tr></thead><tbody id="recent-tbody"><tr><td colspan="6" class="empty-row"><div class="loading"><div class="spinner"></div></div></td></tr></tbody></table></div>
+      </div>
+
+      <!-- ── SHIPMENTS ── -->
+      <div class="panel" id="p-shipments">
+        <div class="tbl-wrap">
+          <div class="tbl-bar">
+            <input class="tbl-search" placeholder="🔍 Search GE#, tracking, customer…" id="ship-search" oninput="filterShipments()">
+            <button class="filter-btn active" data-carrier="ALL" onclick="setCarrierFilter(this)">All</button>
+            <button class="filter-btn" data-carrier="DHL" onclick="setCarrierFilter(this)">DHL</button>
+            <button class="filter-btn" data-carrier="UPS" onclick="setCarrierFilter(this)">UPS</button>
+            <button class="filter-btn" data-carrier="FEDEX" onclick="setCarrierFilter(this)">FedEx</button>
+            <div class="tbl-spacer"></div>
+            <span class="tbl-count" id="ship-count"></span>
+            <button class="btn btn-primary" onclick="nav('add-shipment')"><i class="fa fa-plus"></i> Add</button>
+          </div>
+          <table id="ship-table">
+            <thead><tr><th>#</th><th>GE Number</th><th>Customer / Recipient</th><th>Carrier Tracking</th><th>Carrier</th><th>Service</th><th>Weight</th><th>Date</th><th>Actions</th></tr></thead>
+            <tbody id="ship-tbody"><tr><td colspan="9" class="empty-row"><div class="loading"><div class="spinner"></div></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── ADD SHIPMENT ── -->
+      <div class="panel" id="p-add-shipment">
+        <div class="form-card">
+          <div class="form-title"><i class="fa fa-barcode"></i> Garuda Tracking Number</div>
+          <div class="fl fl-2">
+            <div class="fg"><label>Auto-Generated GE Number</label><div class="ge-auto-display" id="ge-display">Loading... <small>auto-assigned</small></div></div>
+            <div class="fg"><label>Carrier *</label>
+              <select class="fi" id="a-carrier" onchange="onCarrierChange()">
+                <option value="">Select carrier</option>
+                <option value="DHL">DHL Express</option>
+                <option value="UPS">UPS</option>
+                <option value="FEDEX">FedEx</option>
+              </select>
+            </div>
+          </div>
+          <div class="fl fl-2">
+            <div class="fg"><label>Carrier Tracking Number *</label><input class="fi" id="a-tn" placeholder="e.g. 1234567890 / 1ZXXXXXXXX / XXXXXXXXXX" oninput="autoDetectCarrier()"></div>
+            <div class="fg"><label>Service Type</label><input class="fi" id="a-svc" placeholder="e.g. UPS Saver, DHL Express Worldwide"></div>
+          </div>
+        </div>
+        <div class="form-card">
+          <div class="form-title"><i class="fa fa-user"></i> Sender (From)</div>
+          <div class="fl fl-2">
+            <div class="fg"><label>Sender Name *</label><input class="fi" id="a-fname" placeholder="Shipper / Company name"></div>
+            <div class="fg"><label>Sender Address</label><input class="fi" id="a-faddr" placeholder="City, State, Country"></div>
+          </div>
+        </div>
+        <div class="form-card">
+          <div class="form-title"><i class="fa fa-house"></i> Recipient (To)</div>
+          <div class="fl fl-2">
+            <div class="fg"><label>Recipient Name *</label><input class="fi" id="a-tname" placeholder="Recipient name"></div>
+            <div class="fg"><label>Recipient Address</label><input class="fi" id="a-taddr" placeholder="City, State, Country"></div>
+          </div>
+        </div>
+        <div class="form-card">
+          <div class="form-title"><i class="fa fa-box"></i> Package Details</div>
+          <div class="fl fl-4">
+            <div class="fg"><label>Weight</label><input class="fi" id="a-wt" placeholder="e.g. 5 KG"></div>
+            <div class="fg"><label>Dimensions</label><input class="fi" id="a-dims" placeholder="e.g. 30x20x15 CM"></div>
+            <div class="fg"><label>Ship Date</label><input class="fi" id="a-date" type="date"></div>
+            <div class="fg"><label>Description</label><input class="fi" id="a-desc" placeholder="Contents description"></div>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="addShipment()"><i class="fa fa-save"></i> Add Shipment</button>
+          <button class="btn btn-secondary" onclick="resetAddForm()"><i class="fa fa-undo"></i> Reset</button>
+        </div>
+        <div id="add-result" style="margin-top:1rem;"></div>
+      </div>
+
+      <!-- ── WAYBILL PORTAL ── -->
+      <div class="panel" id="p-waybill-portal">
+        <div class="form-card">
+          <div class="form-title"><i class="fa fa-file-upload"></i> Upload Carrier Waybill (DHL / FedEx / UPS)</div>
+          <p style="font-size:0.875rem;color:var(--gray-400);margin-bottom:1.25rem;">Upload any carrier AWB PDF. The system will auto-parse all fields and assign a Garuda tracking number automatically.</p>
+          <div id="drop-zone" style="border:2px dashed rgba(155,90,200,0.3);border-radius:12px;padding:2.5rem;text-align:center;cursor:pointer;position:relative;background:rgba(255,255,255,0.02);transition:all 0.2s;" ondragover="this.style.borderColor='#9B5AC8'" ondragleave="this.style.borderColor='rgba(155,90,200,0.3)'">
+            <input type="file" id="wb-file" accept=".pdf,.png,.jpg" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;" onchange="onFileSelect(this)">
+            <div style="font-size:2.5rem;margin-bottom:0.75rem;">📄</div>
+            <div style="font-size:1rem;font-weight:700;color:#fff;margin-bottom:0.375rem;">Drop carrier waybill PDF here</div>
+            <div style="font-size:0.8125rem;color:rgba(255,255,255,0.35);">Supports: DHL, FedEx, UPS — PDF, PNG, JPG</div>
+            <div id="file-name" style="margin-top:0.75rem;font-family:var(--mono);font-size:0.8125rem;color:var(--pu-200);"></div>
+          </div>
+          <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:1.25rem;" onclick="uploadWaybill()"><i class="fa fa-cog"></i> Parse & Assign Garuda Number</button>
+        </div>
+        <div id="upload-result"></div>
+      </div>
+
+      <!-- ── WAYBILL GENERATE ── -->
+      <div class="panel" id="p-waybill-generate">
+        <div class="wb-preview">
+          <div class="wb-preview-form">
+            <div class="form-card">
+              <div class="form-title"><i class="fa fa-search"></i> Find Shipment</div>
+              <div class="fl fl-2">
+                <div class="fg"><label>GE Tracking Number</label>
+                  <input class="fi" id="wg-ge" placeholder="GE-2026-00001" oninput="this.value=this.value.toUpperCase()">
+                </div>
+                <div style="display:flex;align-items:flex-end;">
+                  <button class="btn btn-primary" onclick="loadWaybillPreview()"><i class="fa fa-eye"></i> Preview Waybill</button>
+                </div>
+              </div>
+            </div>
+            <div id="wg-result"></div>
+          </div>
+          <div class="wb-preview-frame" id="wb-frame-wrap" style="display:none;">
+            <div style="padding:0.75rem;background:rgba(255,255,255,0.04);border-bottom:1px solid rgba(155,90,200,0.15);display:flex;gap:0.5rem;">
+              <button class="btn btn-primary" onclick="downloadWaybill()" style="font-size:0.8125rem;padding:0.5rem 1rem;"><i class="fa fa-download"></i> Download / Print</button>
+              <button class="btn btn-secondary" onclick="editWaybill()" style="font-size:0.8125rem;padding:0.5rem 1rem;"><i class="fa fa-edit"></i> Edit</button>
+            </div>
+            <iframe id="wb-iframe" src="about:blank"></iframe>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── TRACKING ── -->
+      <div class="panel" id="p-tracking">
+        <div class="form-card">
+          <div class="form-title"><i class="fa fa-location-dot"></i> Live Shipment Tracking</div>
+          <div class="fl fl-2">
+            <div class="fg"><label>GE Tracking Number</label><input class="fi" id="trk-ge" placeholder="GE-2026-00001" oninput="this.value=this.value.toUpperCase()"></div>
+            <div style="display:flex;align-items:flex-end;gap:0.5rem;">
+              <button class="btn btn-primary" onclick="doTrack()"><i class="fa fa-satellite-dish"></i> Track</button>
+              <button class="btn btn-secondary" onclick="clearTrack()"><i class="fa fa-times"></i> Clear</button>
+            </div>
+          </div>
+        </div>
+        <div id="trk-result"></div>
+      </div>
+
+      <!-- ── TEST API ── -->
+      <div class="panel" id="p-test-api">
+        <div class="form-card">
+          <div class="form-title"><i class="fa fa-flask"></i> Test Carrier Tracking API</div>
+          <div class="fl fl-3">
+            <div class="fg"><label>Carrier</label>
+              <select class="fi" id="test-carrier">
+                <option value="DHL">DHL</option>
+                <option value="UPS">UPS</option>
+                <option value="FEDEX">FedEx</option>
+              </select>
+            </div>
+            <div class="fg"><label>Carrier Tracking Number</label><input class="fi" id="test-tn" placeholder="Enter tracking number"></div>
+            <div style="display:flex;align-items:flex-end;">
+              <button class="btn btn-primary" onclick="testCarrier()"><i class="fa fa-play"></i> Test</button>
+            </div>
+          </div>
+          <div style="margin-top:0.75rem;font-size:0.8125rem;color:var(--gray-400);">
+            <i class="fa fa-info-circle"></i> Tests the tracking chain: Carrier API → 17track fallback
+          </div>
+        </div>
+        <div id="test-result"></div>
+      </div>
+
+      <!-- ── API KEYS ── -->
+      <div class="panel" id="p-api-keys">
+        <div style="margin-bottom:1rem;padding:1rem;background:rgba(13,170,106,0.08);border:1px solid rgba(13,170,106,0.2);border-radius:10px;font-size:0.875rem;color:rgba(255,255,255,0.8);">
+          <i class="fa fa-info-circle" style="color:#34d399;"></i>
+          <strong>Tracking Chain:</strong> Carrier API → 17track (free universal fallback) → error message. Even without API keys, 17track public API provides fallback coverage.
+        </div>
+        <div id="api-keys-list"><div class="loading"><div class="spinner"></div> Loading...</div></div>
+        <div style="margin-top:1.25rem;background:rgba(255,255,255,0.03);border:1px solid rgba(155,90,200,0.15);border-radius:12px;padding:1.25rem;">
+          <div class="form-title"><i class="fa fa-file-code"></i> .env Configuration</div>
+          <p style="font-size:0.875rem;color:var(--gray-400);margin-bottom:1rem;">Edit your <code style="font-family:var(--mono);background:rgba(155,90,200,0.15);padding:1px 6px;border-radius:4px;">.env</code> file in the project root to add API keys:</p>
+          <pre id="env-preview" style="font-family:var(--mono);font-size:0.8rem;color:var(--pu-200);background:rgba(0,0,0,0.3);padding:1rem;border-radius:8px;overflow-x:auto;line-height:1.6;"></pre>
+        </div>
+      </div>
+
+      <!-- ── SETTINGS ── -->
+      <div class="panel" id="p-settings">
+        <div class="form-card">
+          <div class="form-title"><i class="fa fa-shield"></i> Admin Credentials</div>
+          <p style="font-size:0.875rem;color:var(--gray-400);margin-bottom:1rem;">Change these in the <code style="font-family:var(--mono);background:rgba(155,90,200,0.15);padding:1px 6px;border-radius:4px;">.env</code> file: <code style="font-family:var(--mono);background:rgba(155,90,200,0.15);padding:1px 6px;border-radius:4px;">ADMIN_USER</code> and <code style="font-family:var(--mono);background:rgba(155,90,200,0.15);padding:1px 6px;border-radius:4px;">ADMIN_PASS</code></p>
+          <div class="fl fl-2">
+            <div class="fg"><label>Current User</label><input class="fi" id="s-user" readonly style="opacity:0.6;"></div>
+            <div class="fg"><label>Session</label><input class="fi" value="8 hours" readonly style="opacity:0.6;"></div>
+          </div>
+        </div>
+        <div class="form-card">
+          <div class="form-title"><i class="fa fa-database"></i> Database Actions</div>
+          <div class="btn-row">
+            <button class="btn btn-secondary" onclick="exportData()"><i class="fa fa-download"></i> Export Shipments CSV</button>
+            <button class="btn btn-danger" onclick="clearAll()"><i class="fa fa-trash"></i> Clear All Data</button>
+          </div>
+        </div>
+        <div class="form-card">
+          <div class="form-title"><i class="fa fa-info-circle"></i> System Info</div>
+          <div class="fl fl-3">
+            <div class="fg"><label>Version</label><div class="fi" style="opacity:0.6;">Garuda Express</div></div>
+            <div class="fg"><label>Tracking Engine</label><div class="fi" style="opacity:0.6;">API + 17track fallback</div></div>
+            <div class="fg"><label>Database</label><div class="fi" style="opacity:0.6;">SQLite (better-sqlite3)</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="overlay" id="edit-overlay">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">✏️ Edit Shipment — <span id="edit-ge"></span></div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="fl fl-2">
+        <div class="fg"><label>Customer / Sender Name</label><input class="fi" id="e-cname"></div>
+        <div class="fg"><label>Carrier Tracking Number</label><input class="fi" id="e-tn"></div>
+        <div class="fg"><label>From Name</label><input class="fi" id="e-fname"></div>
+        <div class="fg"><label>From Address</label><input class="fi" id="e-faddr"></div>
+        <div class="fg"><label>To Name</label><input class="fi" id="e-tname"></div>
+        <div class="fg"><label>To Address</label><input class="fi" id="e-taddr"></div>
+        <div class="fg"><label>Service Type</label><input class="fi" id="e-svc"></div>
+        <div class="fg"><label>Weight</label><input class="fi" id="e-wt"></div>
+        <div class="fg"><label>Dimensions</label><input class="fi" id="e-dims"></div>
+        <div class="fg"><label>Description</label><input class="fi" id="e-desc"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEdit()"><i class="fa fa-save"></i> Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<script>
+const API = (path, opts={}) => {
+  opts.headers = { ...(opts.headers||{}), 'x-admin-token': localStorage.getItem('ge_token')||'' };
+  if (opts.body && typeof opts.body === 'object') { opts.headers['Content-Type']='application/json'; opts.body=JSON.stringify(opts.body); }
+  return fetch(path, opts).then(r => r.json());
+};
+
+let token = localStorage.getItem('ge_token');
+let allShipments = [], currentCarrierFilter = 'ALL', editGE = '';
+
+function toast(msg, type='info') {
+  const d = document.createElement('div');
+  d.className = `toast-item toast-${type}`;
+  d.textContent = msg;
+  document.getElementById('toast').appendChild(d);
+  setTimeout(() => d.remove(), 3500);
+}
+
+async function doLogin() {
+  const u = document.getElementById('u').value, pw = document.getElementById('pw').value;
+  const r = await fetch('/api/admin/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:u,password:pw}) }).then(r=>r.json());
+  if (r.success) {
+    localStorage.setItem('ge_token', r.token);
+    token = r.token;
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').classList.add('show');
+    document.getElementById('sb-uname').textContent = u;
+    document.getElementById('sb-av').textContent = u[0].toUpperCase();
+    document.getElementById('s-user').value = u;
+    initApp();
+  } else {
+    document.getElementById('login-err').textContent = r.error || 'Login failed';
+  }
+}
+document.getElementById('pw').addEventListener('keydown', e => e.key === 'Enter' && doLogin());
+
+async function checkAuth() {
+  if (!token) return;
+  const r = await API('/api/admin/me').catch(() => ({}));
+  if (r.success) {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').classList.add('show');
+    document.getElementById('sb-uname').textContent = r.username;
+    document.getElementById('sb-av').textContent = r.username[0].toUpperCase();
+    document.getElementById('s-user').value = r.username;
+    initApp();
+  }
+}
+
+async function doLogout() {
+  await API('/api/admin/logout', {method:'POST'}).catch(()=>{});
+  localStorage.removeItem('ge_token');
+  location.reload();
+}
+
+function nav(page) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.sb-link').forEach(l => l.classList.remove('active'));
+  const p = document.getElementById('p-'+page);
+  if (p) p.classList.add('active');
+  const s = document.getElementById('sb-'+page);
+  if (s) s.classList.add('active');
+  const titles = { dashboard:'Dashboard', shipments:'All Shipments', 'add-shipment':'Add Shipment', 'waybill-portal':'Upload Waybill', 'waybill-generate':'Generate Waybill', tracking:'Live Tracking', 'test-api':'Test Carrier API', 'api-keys':'API Key Status', settings:'Settings' };
+  document.getElementById('topbar-title').textContent = titles[page] || page;
+  if (page === 'dashboard') loadDashboard();
+  if (page === 'shipments') loadShipments();
+  if (page === 'add-shipment') loadGENumber();
+  if (page === 'api-keys') loadApiKeys();
+}
+
+async function initApp() {
+  await loadDashboard();
+}
+
+async function loadDashboard() {
+  const r = await API('/api/shipments');
+  if (!r.success) return;
+  const s = r.stats;
+  document.getElementById('tb-stats').textContent = `${s.total} shipments`;
+  document.getElementById('stats-cards').innerHTML = `
+    <div class="stat-card"><div class="stat-icon" style="background:rgba(123,63,173,0.2);color:var(--pu-200);"><i class="fa fa-box"></i></div><div class="stat-val">${s.total}</div><div class="stat-lbl">Total Shipments</div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:rgba(255,204,0,0.15);color:#FFCC00;"><i class="fa fa-shipping-fast"></i></div><div class="stat-val">${s.dhl}</div><div class="stat-lbl">DHL Shipments</div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:rgba(255,181,0,0.15);color:#FFB500;"><i class="fa fa-truck"></i></div><div class="stat-val">${s.ups}</div><div class="stat-lbl">UPS Shipments</div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:rgba(255,102,0,0.15);color:#FF6600;"><i class="fa fa-plane"></i></div><div class="stat-val">${s.fedex}</div><div class="stat-lbl">FedEx Shipments</div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:rgba(13,170,106,0.15);color:#34d399;"><i class="fa fa-calendar-check"></i></div><div class="stat-val">${s.today||0}</div><div class="stat-lbl">Today</div></div>`;
+  const recent = r.shipments.slice(0,8);
+  document.getElementById('recent-tbody').innerHTML = recent.length ? recent.map(s => `
+    <tr>
+      <td class="td-ge">${s.geTrackingNumber}</td>
+      <td>${s.customerName}<br><small style="color:var(--gray-400);font-size:0.7rem;">${s.toName||''}</small></td>
+      <td><span class="carrier-badge cb-${s.carrier}">${s.carrier}</span></td>
+      <td style="font-size:0.75rem;color:var(--gray-400);">${s.serviceType||'—'}</td>
+      <td style="font-size:0.75rem;color:var(--gray-400);">${new Date(s.createdAt).toLocaleDateString('en-IN')}</td>
+      <td><div class="td-actions">
+        <button class="act-btn act-waybill" onclick="openWaybill('${s.geTrackingNumber}')" title="View Waybill"><i class="fa fa-file-pdf"></i></button>
+        <button class="act-btn act-track" onclick="quickTrack('${s.geTrackingNumber}')" title="Track"><i class="fa fa-location-dot"></i></button>
+      </div></td>
+    </tr>`).join('') : '<tr><td colspan="6" class="empty-row">No shipments yet. Add your first shipment!</td></tr>';
+}
+
+async function loadShipments() {
+  const r = await API(`/api/shipments?carrier=${currentCarrierFilter}`);
+  if (!r.success) return;
+  allShipments = r.shipments;
+  renderShipments(allShipments);
+}
+
+function renderShipments(list) {
+  document.getElementById('ship-count').textContent = `${list.length} records`;
+  document.getElementById('ship-tbody').innerHTML = list.length ? list.map((s,i) => `
+    <tr>
+      <td style="color:var(--gray-500);font-size:0.75rem;">${i+1}</td>
+      <td class="td-ge">${s.geTrackingNumber}</td>
+      <td>${s.customerName||'—'}<br><small style="color:var(--gray-400);font-size:0.7rem;">${s.toName||''}</small></td>
+      <td class="td-mono">${s.carrierTrackingNumber}</td>
+      <td><span class="carrier-badge cb-${s.carrier}">${s.carrier}</span></td>
+      <td style="font-size:0.75rem;color:var(--gray-400);">${s.serviceType||'—'}</td>
+      <td style="font-size:0.75rem;color:var(--gray-400);">${s.weight||'—'}</td>
+      <td style="font-size:0.75rem;color:var(--gray-400);">${new Date(s.createdAt).toLocaleDateString('en-IN')}</td>
+      <td><div class="td-actions">
+        <button class="act-btn act-waybill" onclick="openWaybill('${s.geTrackingNumber}')" title="Waybill"><i class="fa fa-file-pdf"></i></button>
+        <button class="act-btn act-track" onclick="quickTrack('${s.geTrackingNumber}')" title="Track"><i class="fa fa-location-dot"></i></button>
+        <button class="act-btn act-edit" onclick="openEdit('${s.geTrackingNumber}')" title="Edit"><i class="fa fa-edit"></i></button>
+        <button class="act-btn act-del" onclick="deleteShipment('${s.geTrackingNumber}')" title="Delete"><i class="fa fa-trash"></i></button>
+      </div></td>
+    </tr>`).join('') : '<tr><td colspan="9" class="empty-row">No shipments found.</td></tr>';
+}
+
+function filterShipments() {
+  const q = document.getElementById('ship-search').value.toLowerCase();
+  renderShipments(allShipments.filter(s =>
+    s.geTrackingNumber?.toLowerCase().includes(q) || s.carrierTrackingNumber?.toLowerCase().includes(q) ||
+    s.customerName?.toLowerCase().includes(q) || s.toName?.toLowerCase().includes(q)));
+}
+
+function setCarrierFilter(btn) {
+  document.querySelectorAll('[data-carrier]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentCarrierFilter = btn.dataset.carrier;
+  loadShipments();
+}
+
+async function loadGENumber() {
+  const r = await API('/api/generate-ge-number');
+  if (r.success) document.getElementById('ge-display').innerHTML = `${r.geNumber} <small>auto-assigned</small>`;
+}
+
+function autoDetectCarrier() {
+  const tn = document.getElementById('a-tn').value.trim();
+  if (!tn) return;
+  fetch('/api/detect-carrier', { method:'POST', headers:{'Content-Type':'application/json','x-admin-token':token}, body:JSON.stringify({trackingNumber:tn}) })
+    .then(r=>r.json()).then(r => { if (r.carrier) document.getElementById('a-carrier').value = r.carrier; });
+}
+
+async function addShipment() {
+  const carrier = document.getElementById('a-carrier').value;
+  const tn = document.getElementById('a-tn').value.trim();
+  const fname = document.getElementById('a-fname').value.trim();
+  const tname = document.getElementById('a-tname').value.trim();
+  if (!carrier || !tn || (!fname && !tname)) { toast('Fill in carrier, tracking number, and at least one name', 'error'); return; }
+  const r = await API('/api/shipments', { method:'POST', body: {
+    carrier, carrierTrackingNumber: tn, customerName: fname || tname,
+    fromName: fname, fromAddress: document.getElementById('a-faddr').value,
+    toName: tname, toAddress: document.getElementById('a-taddr').value,
+    serviceType: document.getElementById('a-svc').value,
+    weight: document.getElementById('a-wt').value,
+    dimensions: document.getElementById('a-dims').value,
+    description: document.getElementById('a-desc').value,
+    shipDate: document.getElementById('a-date').value
+  }});
+  if (r.success) {
+    toast(`✅ ${r.shipment.geTrackingNumber} created!`, 'success');
+    document.getElementById('add-result').innerHTML = `<div style="padding:1rem;background:rgba(13,170,106,0.1);border:1px solid rgba(13,170,106,0.3);border-radius:10px;"><span style="font-family:var(--mono);font-size:1.125rem;font-weight:700;color:#34d399;">${r.shipment.geTrackingNumber}</span><br><span style="font-size:0.875rem;color:rgba(255,255,255,0.6);">Garuda tracking number assigned. <a href="#" onclick="openWaybill('${r.shipment.geTrackingNumber}');return false;" style="color:var(--pu-200);">View Waybill →</a></span></div>`;
+    resetAddForm();
+    loadGENumber();
+  } else { toast(r.error || 'Failed to add shipment', 'error'); }
+}
+
+function resetAddForm() {
+  ['a-carrier','a-tn','a-fname','a-faddr','a-tname','a-taddr','a-svc','a-wt','a-dims','a-desc','a-date'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+}
+
+function onFileSelect(input) {
+  if (input.files[0]) document.getElementById('file-name').textContent = '📎 ' + input.files[0].name;
+}
+
+async function uploadWaybill() {
+  const file = document.getElementById('wb-file').files[0];
+  if (!file) { toast('Please select a waybill file first', 'error'); return; }
+  const fd = new FormData();
+  fd.append('waybill', file);
+  const r = await fetch('/api/portal/upload', { method:'POST', headers:{'x-admin-token':token}, body:fd }).then(r=>r.json());
+  const el = document.getElementById('upload-result');
+  if (r.success) {
+    toast(`🦅 ${r.geNumber} assigned!`, 'success');
+    el.innerHTML = `<div style="padding:1.25rem;background:rgba(13,170,106,0.08);border:1px solid rgba(13,170,106,0.3);border-radius:12px;margin-top:0.5rem;">
+      <div style="font-size:1.25rem;font-weight:800;color:#34d399;font-family:var(--mono);">${r.geNumber}</div>
+      <div style="font-size:0.875rem;color:rgba(255,255,255,0.6);margin-top:4px;">Garuda tracking number assigned</div>
+      <div style="margin-top:1rem;display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.75rem;font-size:0.8125rem;">
+        <div><span style="color:var(--gray-400);display:block;font-size:0.65rem;text-transform:uppercase;margin-bottom:2px;">Carrier</span><strong>${r.parsed.carrier||'—'}</strong></div>
+        <div><span style="color:var(--gray-400);display:block;font-size:0.65rem;text-transform:uppercase;margin-bottom:2px;">Tracking#</span><strong style="font-family:var(--mono);">${r.parsed.trackingNumber||'—'}</strong></div>
+        <div><span style="color:var(--gray-400);display:block;font-size:0.65rem;text-transform:uppercase;margin-bottom:2px;">Weight</span><strong>${r.parsed.weight||'—'}</strong></div>
+        <div><span style="color:var(--gray-400);display:block;font-size:0.65rem;text-transform:uppercase;margin-bottom:2px;">From</span><strong>${r.parsed.fromName||'—'}</strong></div>
+        <div><span style="color:var(--gray-400);display:block;font-size:0.65rem;text-transform:uppercase;margin-bottom:2px;">To</span><strong>${r.parsed.toName||'—'}</strong></div>
+        <div><span style="color:var(--gray-400);display:block;font-size:0.65rem;text-transform:uppercase;margin-bottom:2px;">Description</span><strong>${r.parsed.description||'—'}</strong></div>
+      </div>
+      <div style="margin-top:1rem;display:flex;gap:0.75rem;">
+        <button class="btn btn-primary" style="font-size:0.8125rem;" onclick="openWaybill('${r.geNumber}')"><i class="fa fa-file-pdf"></i> View Garuda Waybill</button>
+        <button class="btn btn-secondary" style="font-size:0.8125rem;" onclick="quickTrack('${r.geNumber}')"><i class="fa fa-location-dot"></i> Track</button>
+      </div>
+    </div>`;
+    document.getElementById('file-name').textContent = '';
+    document.getElementById('wb-file').value = '';
+  } else {
+    el.innerHTML = `<div style="padding:1rem;background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.3);border-radius:10px;color:#f87171;">${r.error}</div>`;
+  }
+}
+
+function openWaybill(ge) {
+  nav('waybill-generate');
+  document.getElementById('wg-ge').value = ge;
+  loadWaybillPreview();
+}
+
+async function loadWaybillPreview() {
+  const ge = document.getElementById('wg-ge').value.trim().toUpperCase();
+  if (!ge) { toast('Enter a GE tracking number', 'error'); return; }
+  const url = `/api/waybill/${ge}/html`;
+  document.getElementById('wb-iframe').src = url + '?token=' + encodeURIComponent(token);
+  document.getElementById('wb-frame-wrap').style.display = 'block';
+  // Fetch iframe with auth
+  try {
+    const r = await fetch(url, { headers: {'x-admin-token': token} }).then(r => r.text());
+    const blob = new Blob([r], {type:'text/html'});
+    const objUrl = URL.createObjectURL(blob);
+    document.getElementById('wb-iframe').src = objUrl;
+    document.getElementById('wg-result').innerHTML = `<div style="padding:0.75rem;background:rgba(13,170,106,0.08);border:1px solid rgba(13,170,106,0.2);border-radius:8px;font-size:0.875rem;margin-top:0.75rem;">✅ Waybill loaded for <strong>${ge}</strong></div>`;
+    window._currentWaybillGE = ge;
+    window._currentWaybillURL = objUrl;
+  } catch(e) { toast('Failed to load waybill', 'error'); }
+}
+
+function downloadWaybill() {
+  if (!window._currentWaybillURL) { toast('Load a waybill first', 'error'); return; }
+  const a = document.createElement('a');
+  a.href = window._currentWaybillURL;
+  a.download = `Garuda-Waybill-${window._currentWaybillGE||'download'}.html`;
+  a.click();
+  toast('Waybill downloaded! Open in browser and print as PDF.', 'info');
+}
+
+function editWaybill() {
+  if (!window._currentWaybillGE) { toast('Load a waybill first', 'error'); return; }
+  openEdit(window._currentWaybillGE);
+}
+
+function quickTrack(ge) { nav('tracking'); document.getElementById('trk-ge').value = ge; doTrack(); }
+
+async function doTrack() {
+  const ge = document.getElementById('trk-ge').value.trim().toUpperCase();
+  if (!ge) { toast('Enter a GE number', 'error'); return; }
+  const el = document.getElementById('trk-result');
+  el.innerHTML = '<div class="loading"><div class="spinner"></div> Fetching live tracking data...</div>';
+  const r = await API(`/api/track/${ge}`);
+  if (!r.success) { el.innerHTML = `<div class="track-result" style="border-color:rgba(220,38,38,0.3);"><div style="color:#f87171;font-weight:700;">${r.error}</div></div>`; return; }
+  const s = r.shipment, td = s.trackingData;
+  const statusClass = { 'Delivered':'sb-delivered','In Transit':'sb-transit','Out for Delivery':'sb-transit','Exception':'sb-exception' }[s.currentStatus] || 'sb-pending';
+  el.innerHTML = `<div class="track-result">
+    <div class="track-hdr">
+      <div style="flex:1;">
+        <div style="font-size:0.75rem;color:var(--gray-400);margin-bottom:4px;font-family:var(--mono);">${s.geTrackingNumber}</div>
+        <div class="track-status">${s.customerName} → ${s.toAddress||s.destination||'—'}</div>
+        <div style="font-size:0.8125rem;color:var(--gray-400);margin-top:2px;">${s.serviceType||'—'} &nbsp;|&nbsp; ${s.carrier}</div>
+      </div>
+      <div style="text-align:right;">
+        <div><span class="status-badge ${statusClass}">${s.currentStatus}</span></div>
+        <div style="font-size:0.7rem;color:var(--gray-500);margin-top:4px;">Source: ${r.shipment.source||'api'}</div>
+        <div style="font-size:0.7rem;color:var(--gray-500);">${r.cached?'(cached)':''} ${new Date(s.fetchedAt).toLocaleTimeString('en-IN')}</div>
+      </div>
+    </div>
+    <div class="track-events">
+      ${(td?.events||[]).slice(0,15).map((e,i) => `<div class="event-item">
+        <div class="event-dot"></div>
+        <div><div class="event-time">${new Date(e.timestamp).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
+        <div class="event-status">${e.status}</div>
+        ${e.location?`<div class="event-loc">📍 ${e.location}</div>`:''}
+        </div>
+      </div>`).join('') || '<div style="color:var(--gray-400);font-size:0.875rem;">No events found.</div>'}
+    </div>
+  </div>`;
+}
+
+function clearTrack() { document.getElementById('trk-ge').value=''; document.getElementById('trk-result').innerHTML=''; }
+
+async function testCarrier() {
+  const carrier = document.getElementById('test-carrier').value;
+  const tn = document.getElementById('test-tn').value.trim();
+  if (!tn) { toast('Enter a tracking number', 'error'); return; }
+  const el = document.getElementById('test-result');
+  el.innerHTML = '<div class="loading"><div class="spinner"></div> Testing...</div>';
+  const r = await API('/api/test-carrier', { method:'POST', body:{ carrier, trackingNumber: tn } });
+  if (r.success) {
+    el.innerHTML = `<div class="track-result" style="border-color:rgba(13,170,106,0.3);">
+      <div style="color:#34d399;font-weight:700;margin-bottom:0.75rem;">✅ ${carrier} tracking successful — ${r.eventsFound} events (${r.duration}) via ${r.source||'api'}</div>
+      ${(r.data?.events||[]).slice(0,8).map(e=>`<div class="event-item"><div class="event-dot"></div><div><div class="event-time">${new Date(e.timestamp).toLocaleDateString('en-IN')}</div><div class="event-status">${e.status}</div></div></div>`).join('')}
+    </div>`;
+  } else {
+    el.innerHTML = `<div class="track-result" style="border-color:rgba(220,38,38,0.3);">
+      <div style="color:#f87171;font-weight:700;margin-bottom:0.5rem;">⚠ ${r.error||'No data found'}</div>
+      <div style="font-size:0.8125rem;color:var(--gray-400);">Duration: ${r.duration||'—'}</div>
+    </div>`;
+  }
+}
+
+async function loadApiKeys() {
+  const r = await API('/api/admin/api-keys-status');
+  if (!r.success) return;
+  const s = r.status;
+  const cards = Object.entries(s).map(([k,v]) => `
+    <div class="api-card">
+      <div class="api-icon" style="background:${k==='DHL'?'rgba(255,204,0,0.15)':k==='UPS'?'rgba(255,181,0,0.15)':k==='FEDEX'?'rgba(255,102,0,0.15)':'rgba(155,90,200,0.15)'};">
+        ${k==='DHL'?'🚚':k==='UPS'?'📦':k==='FEDEX'?'✈️':'🌍'}
+      </div>
+      <div class="api-info">
+        <div class="api-name">${k === 'TRACK17' ? '17track (Free Fallback)' : k}</div>
+        <div class="api-env">${v.envVars}</div>
+        <div class="api-status ${v.configured?'api-configured':'api-missing'}">
+          ${v.configured ? '✓ Configured' : (k==='TRACK17' ? '⚡ Free public API active' : '⚠ Not configured — falls back to 17track')}
+        </div>
+        ${v.note?`<div style="font-size:0.75rem;color:var(--gray-400);margin-top:2px;">${v.note}</div>`:''}
+        <a class="api-link" href="${v.getKeyUrl}" target="_blank"><i class="fa fa-external-link-alt"></i> Get free API key</a>
+      </div>
+      <div>${v.configured?'<span style="color:#34d399;font-size:1.5rem;">✓</span>':'<span style="color:#f87171;font-size:1.5rem;">○</span>'}</div>
+    </div>`).join('');
+  document.getElementById('api-keys-list').innerHTML = cards;
+  document.getElementById('env-preview').textContent =
+    `DHL_API_KEY=your_dhl_api_key_here\nUPS_CLIENT_ID=your_ups_client_id_here\nUPS_CLIENT_SECRET=your_ups_client_secret_here\nFEDEX_API_KEY=your_fedex_api_key_here\nFEDEX_API_SECRET=your_fedex_api_secret_here\n\n# Free fallback (100/day free, no key needed for basic use)\nTRACK17_API_KEY=your_17track_api_key_here`;
+}
+
+function openEdit(ge) {
+  const s = allShipments.find(x => x.geTrackingNumber === ge);
+  if (!s) { API(`/api/shipments`).then(r => { allShipments = r.shipments||[]; openEdit(ge); }); return; }
+  editGE = ge;
+  document.getElementById('edit-ge').textContent = ge;
+  document.getElementById('e-cname').value = s.customerName||'';
+  document.getElementById('e-tn').value = s.carrierTrackingNumber||'';
+  document.getElementById('e-fname').value = s.fromName||'';
+  document.getElementById('e-faddr').value = s.fromAddress||'';
+  document.getElementById('e-tname').value = s.toName||'';
+  document.getElementById('e-taddr').value = s.toAddress||'';
+  document.getElementById('e-svc').value = s.serviceType||'';
+  document.getElementById('e-wt').value = s.weight||'';
+  document.getElementById('e-dims').value = s.dimensions||'';
+  document.getElementById('e-desc').value = s.description||'';
+  document.getElementById('edit-overlay').classList.add('show');
+}
+function closeModal() { document.getElementById('edit-overlay').classList.remove('show'); }
+
+async function saveEdit() {
+  const r = await API(`/api/shipments/${editGE}`, { method:'PUT', body: {
+    customerName: document.getElementById('e-cname').value,
+    fromName: document.getElementById('e-fname').value,
+    fromAddress: document.getElementById('e-faddr').value,
+    toName: document.getElementById('e-tname').value,
+    toAddress: document.getElementById('e-taddr').value,
+    serviceType: document.getElementById('e-svc').value,
+    weight: document.getElementById('e-wt').value,
+    dimensions: document.getElementById('e-dims').value,
+    description: document.getElementById('e-desc').value
+  }});
+  if (r.success) { toast('Shipment updated', 'success'); closeModal(); loadShipments(); if (window._currentWaybillGE === editGE) loadWaybillPreview(); }
+  else toast(r.error||'Failed', 'error');
+}
+
+async function deleteShipment(ge) {
+  if (!confirm(`Delete ${ge}? This cannot be undone.`)) return;
+  const r = await API(`/api/shipments/${ge}`, { method:'DELETE' });
+  if (r.success) { toast(`${ge} deleted`, 'info'); loadShipments(); }
+  else toast(r.error||'Failed', 'error');
+}
+
+async function exportData() {
+  const r = await API('/api/dashboard/shipments');
+  if (!r.success) return;
+  const header = ['GE Number','Carrier Tracking','Carrier','Customer','From','To','Service','Weight','Date'];
+  const rows = r.shipments.map(s => [s.geTrackingNumber, s.carrierTrackingNumber, s.carrier, s.customerName, s.fromAddress, s.toAddress, s.serviceType, s.weight, new Date(s.date).toLocaleDateString('en-IN')]);
+  const csv = [header, ...rows].map(r => r.map(c => `"${(c||'').toString().replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+  a.download = `garuda-shipments-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  toast('CSV exported', 'success');
+}
+
+async function clearAll() {
+  if (!confirm('Clear ALL shipments and tracking data? This CANNOT be undone!')) return;
+  const r = await API('/api/clear-all', { method:'POST' });
+  if (r.success) { toast(r.message, 'info'); loadDashboard(); }
+}
+
+document.getElementById('edit-overlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+checkAuth();
+</script>
+</body>
+</html>

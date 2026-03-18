@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Garuda Express — Dashboard</title>
+  <link rel="icon" href="../logo.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --pu-900:#1a0820;--pu-800:#2d1040;--pu-700:#3d1f5c;--pu-600:#5B2D8B;
+      --pu-500:#7B3FAD;--pu-400:#9B5AC8;--pu-300:#C08EE0;--pu-200:#DFC4F2;--pu-100:#F2E8FA;
+      --white:#fff;--gray-50:#F9F9FB;--gray-100:#F1EFF5;--gray-200:#E0DBE8;--gray-400:#9E93AA;
+      --gray-500:#766D82;--gray-600:#554E60;--gray-700:#38323F;--gray-800:#201C26;--gray-900:#100D14;
+      --success:#0daa6a;--danger:#dc2626;--warning:#d97706;
+      --gradient:linear-gradient(135deg,#7B3FAD 0%,#5B2D8B 45%,#2d1040 100%);
+      --gradient-soft:linear-gradient(135deg,#9B5AC8 0%,#5B2D8B 100%);
+      --font-ui:'IBM Plex Sans','Helvetica Neue',Arial,sans-serif;
+      --font-mono:'IBM Plex Mono','Courier New',monospace;
+      --r-sm:0.5rem;--r-md:0.75rem;--r-lg:1rem;--r-xl:1.5rem;--r-full:9999px;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html{scroll-behavior:smooth;}
+    body{font-family:var(--font-ui);background:var(--pu-900);color:var(--white);min-height:100vh;-webkit-font-smoothing:antialiased;}
+    a{text-decoration:none;color:inherit;}
+    button{cursor:pointer;font-family:inherit;}
+    ::-webkit-scrollbar{width:5px;}::-webkit-scrollbar-track{background:var(--pu-800);}::-webkit-scrollbar-thumb{background:var(--pu-500);border-radius:var(--r-full);}
+
+    /* NAV */
+    .nav{position:sticky;top:0;z-index:100;height:62px;display:flex;align-items:center;padding:0 2rem;background:rgba(26,8,32,0.97);backdrop-filter:blur(24px);border-bottom:1px solid rgba(155,90,200,0.15);}
+    .nav-inner{max-width:1400px;width:100%;margin:0 auto;display:flex;align-items:center;justify-content:space-between;}
+    .nav-brand{display:flex;align-items:center;gap:0.75rem;font-weight:700;font-size:1rem;}
+    .nav-brand img{height:34px;width:auto;}
+    .nav-brand span{opacity:0.4;font-weight:300;margin:0 0.4rem;}
+    .nav-brand em{font-style:normal;color:var(--pu-300);font-size:0.875rem;font-weight:500;}
+    .nav-links{display:flex;gap:0.25rem;}
+    .nav-links a{padding:0.4rem 0.875rem;border-radius:var(--r-md);font-size:0.8125rem;font-weight:500;color:rgba(255,255,255,0.5);transition:all 0.2s;}
+    .nav-links a:hover,.nav-links a.active{color:var(--white);background:rgba(155,90,200,0.18);}
+    .nav-links a.btn-primary{background:var(--gradient-soft);color:var(--white)!important;padding:0.4rem 1rem;border-radius:var(--r-full);}
+
+    /* PAGE */
+    .page{max-width:1400px;margin:0 auto;padding:2rem 2rem 4rem;}
+
+    /* STAT CARDS */
+    .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:2rem;}
+    .stat-card{background:rgba(255,255,255,0.04);border:1px solid rgba(155,90,200,0.15);border-radius:var(--r-xl);padding:1.25rem 1.5rem;display:flex;align-items:center;gap:1rem;}
+    .stat-icon{width:42px;height:42px;border-radius:var(--r-lg);display:flex;align-items:center;justify-content:center;font-size:1.125rem;flex-shrink:0;}
+    .stat-icon.purple{background:rgba(155,90,200,0.2);color:var(--pu-300);}
+    .stat-icon.yellow{background:rgba(255,204,0,0.15);color:#FFCC00;}
+    .stat-icon.brown{background:rgba(255,181,0,0.12);color:#FFB500;}
+    .stat-icon.violet{background:rgba(77,20,140,0.3);color:#C084FC;}
+    .stat-label{font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.35);font-weight:600;}
+    .stat-value{font-size:1.625rem;font-weight:700;color:var(--white);line-height:1.1;letter-spacing:-0.02em;margin-top:0.2rem;}
+
+    /* FILTERS */
+    .filters-bar{background:rgba(255,255,255,0.03);border:1px solid rgba(155,90,200,0.12);border-radius:var(--r-xl);padding:1.25rem 1.5rem;margin-bottom:1.5rem;display:flex;align-items:flex-end;gap:1rem;flex-wrap:wrap;}
+    .filter-group{display:flex;flex-direction:column;gap:0.4rem;min-width:130px;}
+    .filter-label{font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.35);font-weight:600;}
+    .filter-input{background:rgba(255,255,255,0.07);border:1px solid rgba(155,90,200,0.2);border-radius:var(--r-md);padding:0.5625rem 0.875rem;font-family:var(--font-ui);font-size:0.875rem;color:var(--white);outline:none;transition:all 0.2s;}
+    .filter-input:focus{border-color:var(--pu-400);background:rgba(255,255,255,0.1);box-shadow:0 0 0 2px rgba(155,90,200,0.15);}
+    .filter-input option{background:var(--pu-900);color:var(--white);}
+    .filter-search{flex:1;min-width:200px;}
+    .filter-search .filter-input{padding-left:2.25rem;}
+    .filter-search-wrap{position:relative;}
+    .filter-search-wrap i{position:absolute;left:0.75rem;top:50%;transform:translateY(-50%);color:rgba(155,90,200,0.5);font-size:0.8rem;pointer-events:none;}
+    .btn-filter{padding:0.5625rem 1.25rem;border-radius:var(--r-md);font-size:0.875rem;font-weight:600;border:none;display:inline-flex;align-items:center;gap:0.4rem;cursor:pointer;font-family:var(--font-ui);transition:all 0.2s;letter-spacing:0.03em;}
+    .btn-filter.primary{background:var(--gradient-soft);color:var(--white);}
+    .btn-filter.outline{background:transparent;color:var(--pu-300);border:1px solid rgba(155,90,200,0.3);}
+    .btn-filter.success{background:rgba(13,170,106,0.2);color:#34d399;border:1px solid rgba(13,170,106,0.3);}
+    .btn-filter:hover{transform:translateY(-1px);}
+
+    /* TABLE CARD */
+    .table-card{background:rgba(255,255,255,0.03);border:1px solid rgba(155,90,200,0.12);border-radius:var(--r-xl);overflow:hidden;}
+    .table-toolbar{padding:1rem 1.5rem;border-bottom:1px solid rgba(155,90,200,0.1);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;}
+    .table-info{font-size:0.8125rem;color:rgba(255,255,255,0.4);}
+    .table-info strong{color:var(--white);}
+    .table-wrap{overflow-x:auto;}
+    table{width:100%;border-collapse:collapse;min-width:900px;}
+    th{padding:0.75rem 1rem;text-align:left;font-size:0.625rem;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.3);font-weight:600;background:rgba(255,255,255,0.02);border-bottom:1px solid rgba(155,90,200,0.1);white-space:nowrap;}
+    td{padding:0.875rem 1rem;font-size:0.8125rem;color:rgba(255,255,255,0.7);border-bottom:1px solid rgba(155,90,200,0.07);vertical-align:middle;}
+    tr:last-child td{border-bottom:none;}
+    tr:hover td{background:rgba(155,90,200,0.05);}
+    .badge{display:inline-flex;align-items:center;gap:0.3rem;padding:0.25rem 0.625rem;border-radius:var(--r-full);font-size:0.6875rem;font-weight:600;letter-spacing:0.04em;white-space:nowrap;}
+    .badge-dhl{background:rgba(255,204,0,0.15);color:#FFCC00;}
+    .badge-ups{background:rgba(255,181,0,0.12);color:#FFB500;}
+    .badge-fedex{background:rgba(77,20,140,0.3);color:#C084FC;}
+    .mono{font-family:var(--font-mono);font-size:0.8125rem;color:var(--pu-300);letter-spacing:0.02em;}
+    .sno{font-size:0.75rem;color:rgba(255,255,255,0.25);font-weight:600;}
+    .cell-truncate{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .action-btns{display:flex;gap:0.375rem;flex-wrap:nowrap;}
+    .btn-action{width:30px;height:30px;border-radius:var(--r-sm);border:1px solid rgba(155,90,200,0.25);background:transparent;color:rgba(255,255,255,0.5);display:flex;align-items:center;justify-content:center;font-size:0.75rem;cursor:pointer;transition:all 0.2s;flex-shrink:0;}
+    .btn-action:hover{background:rgba(155,90,200,0.2);color:var(--white);border-color:var(--pu-400);}
+    .btn-action.dl:hover{background:rgba(13,170,106,0.2);color:#34d399;border-color:rgba(13,170,106,0.4);}
+    .btn-action.del:hover{background:rgba(220,38,38,0.2);color:#f87171;border-color:rgba(220,38,38,0.4);}
+    .empty-state{padding:3.5rem 1.5rem;text-align:center;color:rgba(255,255,255,0.2);}
+    .empty-state i{font-size:2rem;display:block;margin-bottom:0.75rem;opacity:0.4;}
+    .loader{display:flex;align-items:center;justify-content:center;padding:2.5rem;gap:0.75rem;color:rgba(255,255,255,0.3);font-size:0.875rem;}
+    .loader i{color:var(--pu-400);}
+
+    /* MODAL */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:2000;display:none;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(4px);}
+    .modal-overlay.open{display:flex;}
+    .modal{background:#1e0e2e;border:1px solid rgba(155,90,200,0.3);border-radius:var(--r-xl);width:100%;max-width:600px;max-height:90vh;overflow-y:auto;padding:2rem;animation:slideUp 0.3s ease;}
+    @keyframes slideUp{from{transform:translateY(20px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+    .modal-title{font-size:1.125rem;font-weight:700;color:var(--white);margin-bottom:0.375rem;}
+    .modal-sub{font-size:0.8125rem;color:rgba(255,255,255,0.35);margin-bottom:1.75rem;}
+    .modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;}
+    .modal-grid .full{grid-column:1/-1;}
+    .form-group{display:flex;flex-direction:column;gap:0.4rem;}
+    .form-label{font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.4);font-weight:600;}
+    .form-input{background:rgba(255,255,255,0.07);border:1px solid rgba(155,90,200,0.2);border-radius:var(--r-md);padding:0.6875rem 0.875rem;font-family:var(--font-ui);font-size:0.9375rem;color:var(--white);outline:none;transition:all 0.2s;}
+    .form-input:focus{border-color:var(--pu-400);background:rgba(255,255,255,0.1);box-shadow:0 0 0 2px rgba(155,90,200,0.15);}
+    .form-input::placeholder{color:rgba(255,255,255,0.2);}
+    .modal-footer{display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1.75rem;padding-top:1.25rem;border-top:1px solid rgba(155,90,200,0.15);}
+    .btn-modal{padding:0.6875rem 1.375rem;border-radius:var(--r-md);font-size:0.875rem;font-weight:600;border:none;cursor:pointer;font-family:var(--font-ui);transition:all 0.2s;display:inline-flex;align-items:center;gap:0.4rem;}
+    .btn-modal.save{background:var(--gradient-soft);color:var(--white);}
+    .btn-modal.cancel{background:transparent;color:rgba(255,255,255,0.4);border:1px solid rgba(155,90,200,0.2);}
+    .btn-modal:hover{transform:translateY(-1px);}
+
+    @media(max-width:900px){.stats-row{grid-template-columns:1fr 1fr;}.filters-bar{flex-direction:column;align-items:stretch;}}
+    @media(max-width:600px){.stats-row{grid-template-columns:1fr 1fr;}.page{padding:1.25rem 1rem 3rem;}}
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <div class="nav-brand">
+      <img src="../logo.png" alt="Garuda">
+      Garuda Express
+      <span>/</span>
+      <em>Dashboard</em>
+    </div>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/portal">Portal</a>
+      <a href="/Admin">Admin</a>
+      <a href="/" class="btn-primary"><i class="fas fa-search"></i> Track</a>
+    </div>
+  </div>
+</nav>
+
+<div class="page">
+
+  <!-- STATS -->
+  <div class="stats-row" id="statsRow">
+    <div class="stat-card"><div class="stat-icon purple"><i class="fas fa-boxes"></i></div><div><div class="stat-label">Total Shipments</div><div class="stat-value" id="statTotal">—</div></div></div>
+    <div class="stat-card"><div class="stat-icon yellow"><i class="fas fa-circle"></i></div><div><div class="stat-label">DHL</div><div class="stat-value" id="statDHL">—</div></div></div>
+    <div class="stat-card"><div class="stat-icon brown"><i class="fas fa-circle"></i></div><div><div class="stat-label">UPS</div><div class="stat-value" id="statUPS">—</div></div></div>
+    <div class="stat-card"><div class="stat-icon violet"><i class="fas fa-circle"></i></div><div><div class="stat-label">FedEx</div><div class="stat-value" id="statFEDEX">—</div></div></div>
+  </div>
+
+  <!-- FILTERS -->
+  <div class="filters-bar">
+    <div class="filter-group">
+      <span class="filter-label">From Date</span>
+      <input type="date" class="filter-input" id="filterFrom">
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">To Date</span>
+      <input type="date" class="filter-input" id="filterTo">
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Carrier</span>
+      <select class="filter-input" id="filterCarrier">
+        <option value="ALL">All Carriers</option>
+        <option value="DHL">DHL</option>
+        <option value="UPS">UPS</option>
+        <option value="FEDEX">FedEx</option>
+      </select>
+    </div>
+    <div class="filter-group filter-search">
+      <span class="filter-label">Search</span>
+      <div class="filter-search-wrap">
+        <i class="fas fa-search"></i>
+        <input type="text" class="filter-input" id="filterSearch" placeholder="GE number, tracking, customer…">
+      </div>
+    </div>
+    <button class="btn-filter primary" onclick="loadData()"><i class="fas fa-filter"></i> Apply</button>
+    <button class="btn-filter outline" onclick="clearFilters()"><i class="fas fa-times"></i> Clear</button>
+    <button class="btn-filter success" onclick="exportCSV()"><i class="fas fa-file-csv"></i> Export CSV</button>
+  </div>
+
+  <!-- TABLE -->
+  <div class="table-card">
+    <div class="table-toolbar">
+      <div class="table-info">Showing <strong id="rowCount">0</strong> shipments</div>
+      <button class="btn-filter outline" onclick="loadData()" style="padding:0.4rem 0.875rem;font-size:0.8125rem;"><i class="fas fa-refresh"></i> Refresh</button>
+    </div>
+    <div class="table-wrap">
+      <div id="tableBody">
+        <div class="loader"><i class="fas fa-spinner fa-spin"></i> Loading shipments…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <div class="modal-title">Edit Shipment</div>
+    <div class="modal-sub" id="editModalSub">GE-2025-0001</div>
+    <input type="hidden" id="editId">
+    <div class="modal-grid">
+      <div class="form-group full">
+        <label class="form-label">Customer Name</label>
+        <input type="text" class="form-input" id="editCustomerName">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">Carrier Tracking No.</label>
+        <input type="text" class="form-input" id="editCarrierTN" style="font-family:var(--font-mono);">
+      </div>
+      <div class="form-group">
+        <label class="form-label">From Address</label>
+        <input type="text" class="form-input" id="editFrom">
+      </div>
+      <div class="form-group">
+        <label class="form-label">To Address</label>
+        <input type="text" class="form-input" id="editTo">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Service Type</label>
+        <input type="text" class="form-input" id="editService">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Weight</label>
+        <input type="text" class="form-input" id="editWeight" placeholder="e.g. 2.5 kg">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Dimensions</label>
+        <input type="text" class="form-input" id="editDimensions" placeholder="e.g. 30x20x15 cm">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-modal cancel" onclick="closeModal()"><i class="fas fa-times"></i> Cancel</button>
+      <button class="btn-modal save" onclick="saveEdit()"><i class="fas fa-save"></i> Save & Download PDF</button>
+      <button class="btn-modal save" style="background:rgba(13,170,106,0.3);border:1px solid rgba(13,170,106,0.4);" onclick="saveEditOnly()"><i class="fas fa-check"></i> Save Only</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const token = localStorage.getItem('garudaAdminToken');
+  if (!token) { alert('Please login to Admin panel first.'); window.location.href = '/Admin'; }
+
+  let allData = [];
+  let editingGE = '';
+
+  async function loadData() {
+    document.getElementById('tableBody').innerHTML = '<div class="loader"><i class="fas fa-spinner fa-spin"></i> Loading…</div>';
+    const from    = document.getElementById('filterFrom').value;
+    const to      = document.getElementById('filterTo').value;
+    const carrier = document.getElementById('filterCarrier').value;
+    const search  = document.getElementById('filterSearch').value.trim();
+    let url = '/api/dashboard/shipments?';
+    if (from)   url += `from=${from}&`;
+    if (to)     url += `to=${to}&`;
+    if (carrier && carrier !== 'ALL') url += `carrier=${carrier}&`;
+    if (search) url += `search=${encodeURIComponent(search)}&`;
+    try {
+      const res  = await fetch(url, { headers: { 'x-admin-token': token } });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      allData = data.shipments;
+      updateStats(data.stats);
+      renderTable(data.shipments);
+      document.getElementById('rowCount').textContent = data.total;
+    } catch(e) {
+      document.getElementById('tableBody').innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-triangle"></i>${e.message}</div>`;
+    }
+  }
+
+  function updateStats(s) {
+    if (!s) return;
+    document.getElementById('statTotal').textContent  = s.total  || 0;
+    document.getElementById('statDHL').textContent    = s.dhl    || 0;
+    document.getElementById('statUPS').textContent    = s.ups    || 0;
+    document.getElementById('statFEDEX').textContent  = s.fedex  || 0;
+  }
+
+  function renderTable(rows) {
+    if (!rows.length) {
+      document.getElementById('tableBody').innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i>No shipments found. Adjust your filters or upload waybills via the Portal.</div>';
+      return;
+    }
+    const html = `
+      <table>
+        <thead><tr>
+          <th>#</th>
+          <th>Date</th>
+          <th>Garuda Track ID</th>
+          <th>Carrier</th>
+          <th>Original Track ID</th>
+          <th>Customer</th>
+          <th>From</th>
+          <th>To</th>
+          <th>Service</th>
+          <th>Weight</th>
+          <th>Actions</th>
+        </tr></thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr>
+              <td class="sno">${r.sNo}</td>
+              <td>${fmtDate(r.date)}</td>
+              <td class="mono">${esc(r.geTrackingNumber)}</td>
+              <td><span class="badge badge-${r.carrier.toLowerCase()}">${r.carrier}</span></td>
+              <td class="mono">${esc(r.carrierTrackingNumber)}</td>
+              <td class="cell-truncate">${esc(r.customerName)}</td>
+              <td class="cell-truncate">${esc(r.fromAddress||'—')}</td>
+              <td class="cell-truncate">${esc(r.toAddress||'—')}</td>
+              <td class="cell-truncate">${esc(r.serviceType||'—')}</td>
+              <td>${esc(r.weight||'—')}</td>
+              <td>
+                <div class="action-btns">
+                  <button class="btn-action dl" title="Download Garuda Waybill PDF" onclick="downloadPDF('${r.geTrackingNumber}')"><i class="fas fa-download"></i></button>
+                  <button class="btn-action" title="Edit shipment details" onclick="openEdit(${JSON.stringify(r).replace(/"/g,'&quot;')})"><i class="fas fa-edit"></i></button>
+                  <button class="btn-action del" title="Delete shipment" onclick="deleteRow('${r.geTrackingNumber}')"><i class="fas fa-trash"></i></button>
+                </div>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+    document.getElementById('tableBody').innerHTML = html;
+  }
+
+  function openEdit(row) {
+    editingGE = row.geTrackingNumber;
+    document.getElementById('editModalSub').textContent  = row.geTrackingNumber + ' — ' + row.carrier;
+    document.getElementById('editId').value              = row.id;
+    document.getElementById('editCustomerName').value    = row.customerName || '';
+    document.getElementById('editCarrierTN').value       = row.carrierTrackingNumber || '';
+    document.getElementById('editFrom').value            = row.fromAddress || '';
+    document.getElementById('editTo').value              = row.toAddress || '';
+    document.getElementById('editService').value         = row.serviceType || '';
+    document.getElementById('editWeight').value          = row.weight || '';
+    document.getElementById('editDimensions').value      = row.dimensions || '';
+    document.getElementById('editModal').classList.add('open');
+  }
+
+  function closeModal() { document.getElementById('editModal').classList.remove('open'); }
+
+  async function saveEdit() {
+    await doSave();
+    closeModal();
+    downloadPDF(editingGE);
+  }
+
+  async function saveEditOnly() {
+    await doSave();
+    closeModal();
+    showToast('Saved successfully', 'success');
+  }
+
+  async function doSave() {
+    const id = document.getElementById('editId').value;
+    const body = {
+      customerName:          document.getElementById('editCustomerName').value,
+      carrierTrackingNumber: document.getElementById('editCarrierTN').value,
+      fromAddress:           document.getElementById('editFrom').value,
+      toAddress:             document.getElementById('editTo').value,
+      serviceType:           document.getElementById('editService').value,
+      weight:                document.getElementById('editWeight').value,
+      dimensions:            document.getElementById('editDimensions').value,
+    };
+    try {
+      const res  = await fetch(`/api/dashboard/shipments/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      loadData();
+    } catch(e) { showToast(e.message, 'error'); }
+  }
+
+  async function deleteRow(ge) {
+    if (!confirm(`Delete shipment ${ge}? This cannot be undone.`)) return;
+    try {
+      const res  = await fetch(`/api/shipments/${ge}`, { method: 'DELETE', headers: { 'x-admin-token': token } });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      showToast('Deleted ' + ge, 'success');
+      loadData();
+    } catch(e) { showToast(e.message, 'error'); }
+  }
+
+  function downloadPDF(ge) {
+    showToast('Generating PDF for ' + ge + '…', 'info');
+    window.open(`/api/waybill/${ge}/pdf`, '_blank');
+  }
+
+  function clearFilters() {
+    document.getElementById('filterFrom').value = '';
+    document.getElementById('filterTo').value   = '';
+    document.getElementById('filterCarrier').value = 'ALL';
+    document.getElementById('filterSearch').value  = '';
+    loadData();
+  }
+
+  function exportCSV() {
+    if (!allData.length) { showToast('No data to export', 'error'); return; }
+    const cols = ['sNo','date','geTrackingNumber','carrierTrackingNumber','carrier','customerName','fromAddress','toAddress','serviceType','weight','dimensions'];
+    const header = ['S.No','Date','Garuda Track ID','Original Track ID','Carrier','Customer','From','To','Service','Weight','Dimensions'];
+    const rows = allData.map(r => cols.map(c => `"${(r[c]||'').toString().replace(/"/g,'""')}"`).join(','));
+    const csv  = [header.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a'); a.href = url;
+    a.download = `GarudaExpress-Report-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('CSV exported!', 'success');
+  }
+
+  function fmtDate(d) {
+    try { return new Date(d).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }); }
+    catch { return d; }
+  }
+  function esc(t) {
+    const d = document.createElement('div'); d.textContent = t||''; return d.innerHTML;
+  }
+
+  // Enter key on search
+  document.getElementById('filterSearch').addEventListener('keypress', e => { if (e.key==='Enter') loadData(); });
+
+  let _toastTimer = null;
+  function showToast(msg, type='info') {
+    let t = document.getElementById('toast-dash');
+    if (!t) {
+      t = document.createElement('div'); t.id = 'toast-dash';
+      t.style.cssText = 'position:fixed;bottom:2rem;right:2rem;padding:0.875rem 1.25rem;border-radius:0.75rem;display:flex;align-items:center;gap:0.625rem;font-size:0.875rem;font-weight:500;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,0.4);max-width:340px;font-family:var(--font-ui);';
+      document.body.appendChild(t);
+    }
+    const colors = {success:'#065f46',error:'#7f1d1d',info:'#1e1b4b'};
+    const icons  = {success:'fa-check-circle',error:'fa-exclamation-circle',info:'fa-info-circle'};
+    t.style.background = colors[type]||colors.info;
+    t.style.border = type==='success'?'1px solid rgba(52,211,153,0.3)':type==='error'?'1px solid rgba(248,113,113,0.3)':'1px solid rgba(155,90,200,0.3)';
+    t.innerHTML = `<i class="fas ${icons[type]||icons.info}" style="color:${type==='success'?'#34d399':type==='error'?'#f87171':'#a78bfa'}"></i><span style="color:#fff">${msg}</span>`;
+    t.style.display = 'flex';
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => { t.style.display = 'none'; }, 3500);
+  }
+
+  // Close modal on backdrop click
+  document.getElementById('editModal').addEventListener('click', e => { if(e.target===e.currentTarget) closeModal(); });
+
+  // Initial load
+  loadData();
+</script>
+</body>
+</html>

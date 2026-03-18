@@ -1,15 +1,14 @@
 {
   "name": "garuda-express",
   "version": "5.0.0",
-  "description": "Garuda Express Multi-Carrier Tracking — DHL, UPS, FedEx with 17track fallback.",
-  "main": "api/index.js",
+  "description": "Garuda Express Multi-Carrier Tracking",
+  "main": "api/[...path].js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js",
-    "vercel-dev": "vercel dev"
+    "dev": "nodemon server.js"
   },
   "dependencies": {
-    "compression": "^1.7.4",
+    "@upstash/redis": "^1.28.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",

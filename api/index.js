@@ -740,3 +740,4 @@ app.get('/api/health', (req, res) => {
 app.use('/api/*', (req, res) => res.status(404).json({ error: 'Not found' }));
 
 module.exports = app;
+module.exports.default = app;

@@ -9,12 +9,14 @@
       "memory": 512
     }
   },
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/api/index.js" },
-    { "src": "/Admin/?",  "dest": "/Admin/index.html" },
-    { "src": "/portal/?", "dest": "/portal/index.html" },
-    { "src": "/dashboard/?", "dest": "/dashboard/index.html" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.js" },
+    { "source": "/Admin",    "destination": "/Admin/index.html" },
+    { "source": "/Admin/",   "destination": "/Admin/index.html" },
+    { "source": "/portal",   "destination": "/portal/index.html" },
+    { "source": "/portal/",  "destination": "/portal/index.html" },
+    { "source": "/dashboard",  "destination": "/dashboard/index.html" },
+    { "source": "/dashboard/", "destination": "/dashboard/index.html" }
   ]
 }
+

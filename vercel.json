@@ -4,19 +4,18 @@
   "outputDirectory": ".",
   "trailingSlash": false,
   "functions": {
-    "api/index.js": {
+    "api/[...path].js": {
       "maxDuration": 30,
       "memory": 512
     }
   },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index.js" },
-    { "source": "/Admin",    "destination": "/Admin/index.html" },
-    { "source": "/Admin/",   "destination": "/Admin/index.html" },
-    { "source": "/portal",   "destination": "/portal/index.html" },
-    { "source": "/portal/",  "destination": "/portal/index.html" },
+    { "source": "/api/:path*", "destination": "/api/[...path]" },
+    { "source": "/Admin",      "destination": "/Admin/index.html" },
+    { "source": "/Admin/",     "destination": "/Admin/index.html" },
+    { "source": "/portal",     "destination": "/portal/index.html" },
+    { "source": "/portal/",    "destination": "/portal/index.html" },
     { "source": "/dashboard",  "destination": "/dashboard/index.html" },
     { "source": "/dashboard/", "destination": "/dashboard/index.html" }
   ]
 }
-

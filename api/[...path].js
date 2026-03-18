@@ -739,5 +739,5 @@ app.get('/api/health', (req, res) => {
 // ── 404 for unknown API routes
 app.use('/api/*', (req, res) => res.status(404).json({ error: 'Not found' }));
 
-module.exports = app;
-module.exports.default = app;
+// Vercel serverless handler — export as plain function
+module.exports = (req, res) => app(req, res);

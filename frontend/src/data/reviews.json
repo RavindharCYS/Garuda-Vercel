@@ -1,0 +1,50 @@
+[
+  {
+    "id": 1,
+    "name": "Annamalai",
+    "initials": "AN",
+    "role": "Regular Customer",
+    "rating": 5,
+    "review": "This is my parcel — good service and parcel safe and secure. Perfect processing and timing. I am very satisfied!"
+  },
+  {
+    "id": 2,
+    "name": "Vinoth",
+    "initials": "VI",
+    "role": "Business Client",
+    "rating": 5,
+    "review": "Best service & value for money. I always use Garuda Express for all my international shipments. Highly recommended!"
+  },
+  {
+    "id": 3,
+    "name": "Gayathri",
+    "initials": "GA",
+    "role": "Satisfied Customer",
+    "rating": 5,
+    "review": "Best courier service in Chennai. They respond very well and their packing materials are excellent — well-experienced staff."
+  },
+  {
+    "id": 4,
+    "name": "Rajkumar",
+    "initials": "RK",
+    "role": "Export Business Owner",
+    "rating": 5,
+    "review": "Excellent tracking system and on-time delivery. Very professional team. My go-to courier partner for all export shipments."
+  },
+  {
+    "id": 5,
+    "name": "Priya S.",
+    "initials": "PR",
+    "role": "E-commerce Seller",
+    "rating": 5,
+    "review": "Garuda Express handles all my international orders perfectly. Their pricing is competitive and delivery is always on time."
+  },
+  {
+    "id": 6,
+    "name": "Mohammed Farhan",
+    "initials": "MF",
+    "role": "Gulf Exporter",
+    "rating": 5,
+    "review": "Sending documents to UAE regularly through Garuda Express. Always delivered within 2-3 days. Excellent service!"
+  }
+]

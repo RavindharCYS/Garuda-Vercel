@@ -24,12 +24,16 @@ export default function ShipmentsPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo,   setDateTo]   = useState('')
   const [deleting, setDeleting] = useState(false)
+  const [syncing,  setSyncing]  = useState(false)
 
   // NOTE: the old admin-only Manual/Auto Tracking toggle that used to live
   // here is gone — shipments are registered with a tracking provider once
-  // at creation (see services/trackingService.js), and updates arrive via
-  // webhook. There's no schedule to configure any more.
-
+  // at creation (see services/trackingService.js), and updates normally
+  // arrive via webhook. "Sync Pending Now" below is the manual fallback for
+  // when the webhook can't reach this server yet (e.g. local development,
+  // or before its URL is pasted into TrackingMore/17Track's dashboard —
+  // see Settings) — it pulls current results immediately instead of
+  // waiting for the automatic catch-up worker's next run.
 
   const fetchShipments = useCallback(async () => {
     setLoading(true)
@@ -55,6 +59,18 @@ export default function ShipmentsPage() {
     setDeleting(false)
   }
 
+  const handleSyncPending = async () => {
+    setSyncing(true)
+    try {
+      const res  = await authFetch('/api/shipments/tracking/sync-pending', { method:'POST' })
+      const data = await res.json()
+      if (data.success) {
+        alert(`Checked ${data.checked} registered shipment(s) — ${data.updated} updated${data.failed ? `, ${data.failed} still no data yet` : ''}.`)
+        fetchShipments()
+      }
+    } finally { setSyncing(false) }
+  }
+
   const handleExport = () => {
     const params = new URLSearchParams()
     if (dateFrom) params.set('date_from', dateFrom)
@@ -76,6 +92,14 @@ export default function ShipmentsPage() {
           <p style={{ color:'#766D82', fontSize:14, marginTop:4 }}>{total} total shipments</p>
         </div>
         <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          {isAdmin && (
+            <button onClick={handleSyncPending} disabled={syncing}
+              title="Pull the latest status for any registered shipment that hasn't gotten an update yet — useful if TrackingMore/17Track's webhook can't reach this server yet (e.g. local development)"
+              style={{ display:'flex', alignItems:'center', gap:6, border:'1.5px solid #e5e7eb', backgroundColor:'white', color:'#374151', padding:'8px 16px', borderRadius:12, fontSize:13, fontWeight:600, cursor:syncing?'not-allowed':'pointer', opacity:syncing?0.6:1 }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={syncing?{ animation:'spin 0.8s linear infinite' }:undefined}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              {syncing ? 'Syncing…' : 'Sync Pending Now'}
+            </button>
+          )}
           {isAdmin && (
             <button onClick={handleExport}
               style={{ display:'flex', alignItems:'center', gap:6, border:'1.5px solid #e5e7eb', backgroundColor:'white', color:'#374151', padding:'8px 16px', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer' }}>

@@ -1,0 +1,38 @@
+# Python dependencies for the waybill OCR/parsing pipeline
+# (services/ocr_worker.py and everything under services/parsers/).
+#
+# Install with:
+#   pip install -r requirements.txt
+#
+# SYSTEM (non-pip) DEPENDENCIES — install these via your OS package manager
+# before pip install, or the corresponding Python packages will fail at
+# import/runtime even though pip install succeeds:
+#   - poppler-utils   (provides pdftoppm/pdftotext — required by pdf2image)
+#       Debian/Ubuntu: apt-get install -y poppler-utils
+#   - tesseract-ocr   (the OCR engine pytesseract drives)
+#       Debian/Ubuntu: apt-get install -y tesseract-ocr
+#
+# OnnxTR (the optional, more-accurate-than-Tesseract OCR layer used as a
+# Tesseract upgrade for genuinely scanned/photographed pages — see
+# services/parsers/ocr_layers.py) downloads its model weights from a
+# GitHub release on first use and caches them locally afterward. That
+# first run needs outbound internet access to github.com /
+# objects.githubusercontent.com; if your hosting environment blocks that,
+# OnnxTR will fail closed and the pipeline automatically falls back to
+# Tesseract (see _get_onnxtr_predictor's failure-marker logic) — no
+# manual configuration needed either way, but initial response latency
+# on a restricted network will be slower for ~1 hour after each failed
+# attempt before it gives up retrying.
+
+pdfplumber==0.11.9       # native PDF text-layer extraction (Layer 0)
+pdf2image==1.17.0        # rasterizes PDF pages to images for OCR (Layers 1-2)
+pillow==12.1.1           # image handling/preprocessing
+pytesseract==0.3.13      # Tesseract OCR binding (Layer 2, always-available fallback)
+numpy==2.4.4             # required by onnxtr
+
+# Optional but recommended — meaningfully more accurate than Tesseract on
+# printed shipping labels (Layer 1). Pure ONNX Runtime, no PyTorch/
+# TensorFlow needed. Safe to omit entirely; the pipeline runs fine without
+# it, just falls back to Tesseract for every scanned/photographed page.
+onnxtr==0.8.1
+onnxruntime==1.24.4

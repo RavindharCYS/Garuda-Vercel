@@ -36,10 +36,12 @@ app.use(helmet({
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 const allowedOrigins = [
-  process.env.FRONTEND_URL || 'http://localhost:3000',
+  process.env.FRONTEND_URL,
+  'https://www.garudaexpressint.com',
+  'https://garudaexpressint.com',
   'http://localhost:3000',
   'http://localhost:5173',
-];
+].filter(Boolean); // drop undefined/empty entries (e.g. if FRONTEND_URL isn't set)
 // Any localhost/127.0.0.1 port is allowed in development, since Vite may pick
 // a different port (5174, 5175...) if 5173 is already in use, and browsers
 // treat localhost and 127.0.0.1 as different origins for CORS purposes.
@@ -51,6 +53,7 @@ app.use(cors({
     if (process.env.NODE_ENV !== 'production' && localDevOriginPattern.test(origin)) {
       return callback(null, true);
     }
+    logger.warn(`CORS blocked origin: ${origin}`);
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,

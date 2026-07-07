@@ -3,6 +3,8 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 
 const AuthContext = createContext(null)
 
+const API_URL = import.meta.env.VITE_API_URL || ''
+
 export function AuthProvider({ children }) {
   const [user,  setUser]  = useState(null)
   const [token, setToken] = useState(() => localStorage.getItem('ge_token'))
@@ -14,7 +16,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (token) {
-      fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+      fetch(`${API_URL}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.json())
         .then(d => { if (d.success) setUser(d.user); else logout(); })
         .catch(logout)
@@ -25,7 +27,7 @@ export function AuthProvider({ children }) {
   }, [token])
 
   const login = async (username, password) => {
-    const res  = await fetch('/api/auth/login', {
+    const res  = await fetch(`${API_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
@@ -56,7 +58,7 @@ export function AuthProvider({ children }) {
     const rt = localStorage.getItem('ge_refresh')
     if (!rt) return null
     try {
-      const res = await fetch('/api/auth/refresh', {
+      const res = await fetch(`${API_URL}/api/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken: rt })
@@ -73,8 +75,12 @@ export function AuthProvider({ children }) {
 
   // authFetch: attaches the bearer token, and on a 401 transparently tries
   // ONE silent refresh + retry before giving up (logs out if that also fails).
+  // NOTE: pass either a full URL (with API_URL already prefixed) or a path
+  // starting with '/api/...' — this helper will prefix it with API_URL for you
+  // if it's a relative path.
   const authFetch = async (url, opts = {}) => {
-    const doFetch = (tok) => fetch(url, { ...opts, headers: { ...opts.headers, Authorization: `Bearer ${tok}` } })
+    const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`
+    const doFetch = (tok) => fetch(fullUrl, { ...opts, headers: { ...opts.headers, Authorization: `Bearer ${tok}` } })
 
     let res = await doFetch(tokenRef.current)
     if (res.status === 401) {

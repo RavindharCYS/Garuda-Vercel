@@ -13,6 +13,8 @@ import {
   FaStar, FaCheck, FaBarcode, FaCircleInfo,
 } from 'react-icons/fa6'
 
+const API_URL = import.meta.env.VITE_API_URL || ''
+
 // ── Shared scroll/motion hooks ────────────────────────────────────────────────
 function useInView(threshold = 0.18) {
   const ref = useRef(null)
@@ -352,7 +354,7 @@ function HeroTracker() {
     if (!/^GE\d{7}$/.test(ge)) return
     setLoading(true); setError(null); setResult(null)
     try {
-      const res  = await fetch(`/api/track/${encodeURIComponent(ge)}`)
+      const res  = await fetch(`${API_URL}/api/track/${encodeURIComponent(ge)}`)
       const json = await res.json()
       if (!json.success) setError(json.error || json.hint || 'Tracking number not found.')
       else setResult(json)

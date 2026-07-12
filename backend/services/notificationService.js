@@ -12,9 +12,9 @@ const { logApiCall } = require('./apiHealth');
 let nodemailer;
 try { nodemailer = require('nodemailer'); } catch (_) { /* optional until npm install */ }
 
-function getSetting(key, fallback) {
+async function getSetting(key, fallback) {
   try {
-    const row = db.prepare('SELECT value FROM system_settings WHERE key = ?').get(key);
+    const row = await db.get('SELECT value FROM system_settings WHERE key = ?', [key]);
     return row ? row.value : fallback;
   } catch (_) { return fallback; }
 }
@@ -59,11 +59,11 @@ async function queueNotification({ event, userId, context = {} }) {
   const template = TEMPLATES[event];
   if (!template) { logger.warn('Unknown notification event', { event }); return; }
 
-  const user = userId ? db.prepare('SELECT email, phone, name FROM users WHERE id = ?').get(userId) : null;
+  const user = userId ? await db.get('SELECT email, phone, name FROM users WHERE id = ?', [userId]) : null;
   const { subject, body } = template(context);
 
-  const emailEnabled = getSetting('notifications_email_enabled', '0') === '1';
-  const whatsappEnabled = getSetting('notifications_whatsapp_enabled', '0') === '1';
+  const emailEnabled = (await getSetting('notifications_email_enabled', '0')) === '1';
+  const whatsappEnabled = (await getSetting('notifications_whatsapp_enabled', '0')) === '1';
 
   const results = [];
   if (emailEnabled && user?.email) {
@@ -74,30 +74,29 @@ async function queueNotification({ event, userId, context = {} }) {
   }
   if (!results.length) {
     // Still log it as queued for audit visibility even if no channel is configured/enabled.
-    db.prepare(`
+    await db.run(`
       INSERT INTO notifications (user_id, channel, event, recipient, subject, body, status, error)
       VALUES (?, 'email', ?, ?, ?, ?, 'Queued', 'No enabled channel or recipient contact on file')
-    `).run(userId, event, user?.email || null, subject, body);
+    `, [userId, event, user?.email || null, subject, body]);
   }
   return results;
 }
 
 async function sendAndRecord({ userId, channel, event, recipient, subject, body }) {
-  const insert = db.prepare(`
+  const info = await db.run(`
     INSERT INTO notifications (user_id, channel, event, recipient, subject, body, status)
-    VALUES (?,?,?,?,?,?, 'Queued')
-  `);
-  const info = insert.run(userId, channel, event, recipient, subject, body);
+    VALUES (?,?,?,?,?,?, 'Queued') RETURNING id
+  `, [userId, channel, event, recipient, subject, body]);
   const notifId = info.lastInsertRowid;
 
   try {
     if (channel === 'email') await sendEmail(recipient, subject, body);
     else if (channel === 'whatsapp') await sendWhatsApp(recipient, body);
 
-    db.prepare("UPDATE notifications SET status='Sent', sent_at=datetime('now') WHERE id=?").run(notifId);
+    await db.run("UPDATE notifications SET status='Sent', sent_at=datetime('now') WHERE id=?", [notifId]);
     return { id: notifId, status: 'Sent' };
   } catch (err) {
-    db.prepare("UPDATE notifications SET status='Failed', error=? WHERE id=?").run(err.message, notifId);
+    await db.run("UPDATE notifications SET status='Failed', error=? WHERE id=?", [err.message, notifId]);
     logger.error('Notification send failed', { channel, recipient, error: err.message });
     return { id: notifId, status: 'Failed', error: err.message };
   }
@@ -144,14 +143,14 @@ async function sendWhatsApp(toPhone, message) {
 
 /** Retry all Queued/Failed notifications — used by the Notification Worker cron. */
 async function processQueue(limit = 50) {
-  const pending = db.prepare("SELECT * FROM notifications WHERE status IN ('Queued','Failed') ORDER BY created_at LIMIT ?").all(limit);
+  const pending = await db.all("SELECT * FROM notifications WHERE status IN ('Queued','Failed') ORDER BY created_at LIMIT ?", [limit]);
   for (const n of pending) {
     try {
       if (n.channel === 'email') await sendEmail(n.recipient, n.subject, n.body);
       else if (n.channel === 'whatsapp') await sendWhatsApp(n.recipient, n.body);
-      db.prepare("UPDATE notifications SET status='Sent', sent_at=datetime('now') WHERE id=?").run(n.id);
+      await db.run("UPDATE notifications SET status='Sent', sent_at=datetime('now') WHERE id=?", [n.id]);
     } catch (err) {
-      db.prepare("UPDATE notifications SET status='Failed', error=? WHERE id=?").run(err.message, n.id);
+      await db.run("UPDATE notifications SET status='Failed', error=? WHERE id=?", [err.message, n.id]);
     }
   }
   return pending.length;
@@ -164,10 +163,10 @@ async function processQueue(limit = 50) {
  * (comma-separated), not a user row's email/phone.
  */
 async function notifySystemRecipients({ event, subject, body }) {
-  const emailEnabled = getSetting('notifications_email_enabled', '0') === '1';
-  const whatsappEnabled = getSetting('notifications_whatsapp_enabled', '0') === '1';
-  const emailRecipients = getSetting('notify_email_recipients', '').split(',').map(s => s.trim()).filter(Boolean);
-  const whatsappRecipients = getSetting('notify_whatsapp_recipients', '').split(',').map(s => s.trim()).filter(Boolean);
+  const emailEnabled = (await getSetting('notifications_email_enabled', '0')) === '1';
+  const whatsappEnabled = (await getSetting('notifications_whatsapp_enabled', '0')) === '1';
+  const emailRecipients = (await getSetting('notify_email_recipients', '')).split(',').map(s => s.trim()).filter(Boolean);
+  const whatsappRecipients = (await getSetting('notify_whatsapp_recipients', '')).split(',').map(s => s.trim()).filter(Boolean);
 
   const results = [];
   if (emailEnabled) {
@@ -177,10 +176,10 @@ async function notifySystemRecipients({ event, subject, body }) {
     for (const to of whatsappRecipients) results.push(await sendAndRecord({ userId: null, channel: 'whatsapp', event, recipient: to, subject, body }));
   }
   if (!results.length) {
-    db.prepare(`
+    await db.run(`
       INSERT INTO notifications (user_id, channel, event, recipient, subject, body, status, error)
       VALUES (NULL, 'email', ?, NULL, ?, ?, 'Queued', 'No enabled channel or recipients configured in Settings')
-    `).run(event, subject, body);
+    `, [event, subject, body]);
   }
   return results;
 }
@@ -191,7 +190,7 @@ async function notifySystemRecipients({ event, subject, body }) {
  * since IT should hear about outages even if end-user notifications are off.
  */
 async function notifyITError(subject, detail) {
-  const itEmail = getSetting('it_alert_email', '');
+  const itEmail = await getSetting('it_alert_email', '');
   if (!itEmail) return; // not configured — nothing to do
   const body = `An application error was detected in Garuda Express:\n\n${subject}\n\n${detail || ''}\n\nTime: ${new Date().toISOString()}`;
   try {

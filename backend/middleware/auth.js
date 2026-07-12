@@ -10,14 +10,14 @@ const SECRET = process.env.JWT_SECRET || 'fallback_dev_secret_change_in_prod';
 // Cache permission codes per role in-process (roles rarely change; admin endpoint
 // to edit role_permissions should call clearPermissionCache()).
 let _permCache = null;
-function loadPermissions() {
+async function loadPermissions() {
   if (_permCache) return _permCache;
-  const rows = db.prepare(`
+  const rows = await db.all(`
     SELECT r.name as role, p.code as permission
     FROM role_permissions rp
     JOIN roles r ON r.id = rp.role_id
     JOIN permissions p ON p.id = rp.permission_id
-  `).all();
+  `);
   _permCache = {};
   for (const row of rows) {
     (_permCache[row.role] ||= new Set()).add(row.permission);
@@ -26,8 +26,8 @@ function loadPermissions() {
 }
 function clearPermissionCache() { _permCache = null; }
 
-function roleHasPermission(role, code) {
-  const perms = loadPermissions();
+async function roleHasPermission(role, code) {
+  const perms = await loadPermissions();
   return !!(perms[role] && perms[role].has(code));
 }
 
@@ -35,9 +35,9 @@ function roleHasPermission(role, code) {
  * Middleware: requires a valid JWT access token.
  * Token can be in Authorization: Bearer <token> header.
  * Also enforces account status (must be Active, not locked) on every request
- * by re-checking the DB row — cheap given SQLite is local/embedded.
+ * by re-checking the DB row.
  */
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : req.cookies?.token;
 
@@ -51,7 +51,7 @@ function requireAuth(req, res, next) {
       return res.status(401).json({ success: false, error: 'Invalid token type' });
     }
 
-    const user = db.prepare('SELECT id, username, role, name, status, is_active FROM users WHERE id = ?').get(payload.id);
+    const user = await db.get('SELECT id, username, role, name, status, is_active FROM users WHERE id = ?', [payload.id]);
     if (!user || !user.is_active || user.status === 'Locked' || user.status === 'Inactive') {
       return res.status(401).json({ success: false, error: 'Account is not active' });
     }
@@ -77,10 +77,15 @@ function requireAdmin(req, res, next) {
  * (cache miss/misconfiguration), admins are always allowed through.
  */
 function requirePermission(code) {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (!req.user) return res.status(401).json({ success: false, error: 'Authentication required' });
     if (req.user.role === 'admin') return next(); // admins implicitly pass — also seeded explicitly
-    if (roleHasPermission(req.user.role, code)) return next();
+    try {
+      if (await roleHasPermission(req.user.role, code)) return next();
+    } catch (err) {
+      logger.error('Permission check failed', { error: err.message, code });
+      return res.status(500).json({ success: false, error: 'Permission check failed' });
+    }
     logger.warn('Permission denied', { user: req.user.username, role: req.user.role, code });
     return res.status(403).json({ success: false, error: `Missing permission: ${code}` });
   };

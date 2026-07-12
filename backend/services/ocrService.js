@@ -33,9 +33,9 @@ const { computeFieldScore } = require('./waybillFieldSchema');
 
 const WORKER_PATH = path.join(__dirname, 'ocr_worker.py');
 
-function getSetting(key, fallback) {
+async function getSetting(key, fallback) {
   try {
-    const row = db.prepare('SELECT value FROM system_settings WHERE key = ?').get(key);
+    const row = await db.get('SELECT value FROM system_settings WHERE key = ?', [key]);
     return row ? row.value : fallback;
   } catch (_) { return fallback; }
 }
@@ -162,7 +162,7 @@ async function runGoogleVision(filePath) {
  * below instead, which add the Gemini accuracy layer on top of this.
  */
 async function extractWaybillDataRaw(filePath) {
-  const primary = getSetting('ocr_engine_primary', 'google_vision');
+  const primary = await getSetting('ocr_engine_primary', 'google_vision');
 
   let result;
   if (primary === 'google_vision' && googleVision.isConfigured()) {
@@ -177,11 +177,11 @@ async function extractWaybillDataRaw(filePath) {
 }
 
 /** Whether the Gemini enrichment layer should run, per env + an optional system_settings override. */
-function isGeminiEnrichmentEnabled() {
+async function isGeminiEnrichmentEnabled() {
   if (!gemini.isConfigured()) return false;
   // Allows an admin to flip this off via system_settings without removing the
   // API key (e.g. to temporarily go back to regex-only during a Gemini outage).
-  return getSetting('ocr_gemini_enrichment', '1') !== '0';
+  return (await getSetting('ocr_gemini_enrichment', '1')) !== '0';
 }
 
 /**
@@ -242,7 +242,7 @@ function rescoreResult(result, mergedFields, geminiUsed) {
 async function extractWaybillData(filePath) {
   const result = await extractWaybillDataRaw(filePath);
 
-  if (!isGeminiEnrichmentEnabled() || !result.rawText) return result;
+  if (!(await isGeminiEnrichmentEnabled()) || !result.rawText) return result;
 
   try {
     const geminiFields = await gemini.extractFields(result.rawText);
@@ -283,7 +283,7 @@ async function extractWaybillDataBatch(filePaths) {
     }
   }));
 
-  if (!isGeminiEnrichmentEnabled()) {
+  if (!(await isGeminiEnrichmentEnabled())) {
     return ocrResults.map(r => (r.ok ? r.result : { error: r.error }));
   }
 

@@ -18,39 +18,39 @@ const router = express.Router();
 router.use(requireAuth, requireAdmin);
 
 // ── Dashboard stats (requirement spec §10 — Admin Dashboard widgets) ───────────
-router.get('/stats', (req, res) => {
-  const total     = db.prepare('SELECT COUNT(*) as c FROM shipments').get().c;
-  const today     = db.prepare("SELECT COUNT(*) as c FROM shipments WHERE DATE(created_at)=DATE('now')").get().c;
-  const delivered = db.prepare("SELECT COUNT(*) as c FROM shipments WHERE status='Delivered' OR tracking_status='Delivered'").get().c;
-  const inTransit = db.prepare("SELECT COUNT(*) as c FROM shipments WHERE tracking_status IN ('In Transit','Picked Up','Out for Delivery')").get().c;
-  const pending   = db.prepare("SELECT COUNT(*) as c FROM shipments WHERE status IN ('Processing')").get().c;
-  const exception = db.prepare("SELECT COUNT(*) as c FROM shipments WHERE tracking_status='Exception'").get().c;
-  const waybillsGenerated = db.prepare('SELECT COUNT(*) as c FROM shipments WHERE garuda_waybill_generated=1').get().c;
-  const manualQueue = db.prepare('SELECT COUNT(*) as c FROM shipments WHERE needs_manual_tracking=1').get().c;
-  const todaysUploads = db.prepare("SELECT COUNT(*) as c FROM bulk_upload_jobs WHERE DATE(created_at)=DATE('now')").get().c;
+router.get('/stats', async (req, res) => {
+  const total     = (await db.get('SELECT COUNT(*) as c FROM shipments')).c;
+  const today     = (await db.get("SELECT COUNT(*) as c FROM shipments WHERE DATE(created_at)=DATE('now')")).c;
+  const delivered = (await db.get("SELECT COUNT(*) as c FROM shipments WHERE status='Delivered' OR tracking_status='Delivered'")).c;
+  const inTransit = (await db.get("SELECT COUNT(*) as c FROM shipments WHERE tracking_status IN ('In Transit','Picked Up','Out for Delivery')")).c;
+  const pending   = (await db.get("SELECT COUNT(*) as c FROM shipments WHERE status IN ('Processing')")).c;
+  const exception = (await db.get("SELECT COUNT(*) as c FROM shipments WHERE tracking_status='Exception'")).c;
+  const waybillsGenerated = (await db.get('SELECT COUNT(*) as c FROM shipments WHERE garuda_waybill_generated=1')).c;
+  const manualQueue = (await db.get('SELECT COUNT(*) as c FROM shipments WHERE needs_manual_tracking=1')).c;
+  const todaysUploads = (await db.get("SELECT COUNT(*) as c FROM bulk_upload_jobs WHERE DATE(created_at)=DATE('now')")).c;
 
-  const byCarrier = db.prepare(`
+  const byCarrier = await db.all(`
     SELECT carrier, COUNT(*) as count FROM shipments WHERE carrier IS NOT NULL GROUP BY carrier ORDER BY count DESC LIMIT 15
-  `).all();
+  `);
 
-  const byCountry = db.prepare(`
+  const byCountry = await db.all(`
     SELECT to_country as country, COUNT(*) as count FROM shipments WHERE to_country IS NOT NULL AND to_country != ''
     GROUP BY to_country ORDER BY count DESC LIMIT 15
-  `).all();
+  `);
 
-  const last7days = db.prepare(`
+  const last7days = await db.all(`
     SELECT DATE(created_at) as date, COUNT(*) as count
     FROM shipments WHERE created_at >= DATE('now','-6 days')
     GROUP BY DATE(created_at) ORDER BY date ASC
-  `).all();
+  `);
 
-  const employeeActivity = db.prepare(`
+  const employeeActivity = await db.all(`
     SELECT username, role, COUNT(*) as actions, MAX(created_at) as last_action
     FROM audit_log WHERE username IS NOT NULL AND created_at >= datetime('now','-7 days')
-    GROUP BY username ORDER BY actions DESC LIMIT 10
-  `).all();
+    GROUP BY username, role ORDER BY actions DESC LIMIT 10
+  `);
 
-  const apiHealth = getApiHealth(24);
+  const apiHealth = await getApiHealth(24);
 
   res.json({
     success: true,
@@ -62,13 +62,13 @@ router.get('/stats', (req, res) => {
 });
 
 // ── Users CRUD (requirement spec §2) ─────────────────────────────────────────
-router.get('/users', (req, res) => {
-  const users = db.prepare(`
+router.get('/users', async (req, res) => {
+  const users = await db.all(`
     SELECT id, username, role, name, employee_id, email, phone, branch, status,
            is_active, must_change_password, mfa_enabled, last_login_at, last_login_ip,
            failed_login_attempts, locked_until, created_at
     FROM users ORDER BY created_at DESC
-  `).all();
+  `);
   res.json({ success: true, data: users });
 });
 
@@ -82,15 +82,15 @@ router.post('/users', async (req, res) => {
 
   const hashed = await hashPassword(password);
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       INSERT INTO users (username, password, role, name, employee_id, email, phone, branch, status, created_by)
-      VALUES (?,?,?,?,?,?,?,?, 'Active', ?)
-    `).run(username.trim(), hashed, role, name, employeeId || null, email || null, phone || null, branch || null, req.user.id);
+      VALUES (?,?,?,?,?,?,?,?, 'Active', ?) RETURNING id
+    `, [username.trim(), hashed, role, name, employeeId || null, email || null, phone || null, branch || null, req.user.id]);
 
     logAudit(req, { action: 'CREATE_USER', entity: 'users', entityId: info.lastInsertRowid, newValue: { username, role, name }, actor: req.user });
     res.status(201).json({ success: true, id: info.lastInsertRowid });
   } catch (err) {
-    if (err.message.includes('UNIQUE')) return res.status(409).json({ success: false, error: 'Username already exists' });
+    if (/unique/i.test(err.message)) return res.status(409).json({ success: false, error: 'Username already exists' });
     throw err;
   }
 });
@@ -98,26 +98,26 @@ router.post('/users', async (req, res) => {
 router.put('/users/:id', async (req, res) => {
   const { name, role, is_active, email, phone, branch, status } = req.body;
   const id = req.params.id;
-  const before = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  const before = await db.get('SELECT * FROM users WHERE id = ?', [id]);
   if (!before) return res.status(404).json({ success: false, error: 'User not found' });
 
-  db.prepare(`
+  await db.run(`
     UPDATE users SET
       name=COALESCE(?,name), role=COALESCE(?,role), is_active=COALESCE(?,is_active),
       email=COALESCE(?,email), phone=COALESCE(?,phone), branch=COALESCE(?,branch), status=COALESCE(?,status)
     WHERE id=?
-  `).run(name ?? null, role ?? null, is_active ?? null, email ?? null, phone ?? null, branch ?? null, status ?? null, id);
+  `, [name ?? null, role ?? null, is_active ?? null, email ?? null, phone ?? null, branch ?? null, status ?? null, id]);
 
   logAudit(req, { action: 'UPDATE_USER', entity: 'users', entityId: id, oldValue: before, newValue: req.body, actor: req.user });
   clearPermissionCache();
   res.json({ success: true });
 });
 
-router.delete('/users/:id', (req, res) => {
+router.delete('/users/:id', async (req, res) => {
   if (parseInt(req.params.id) === req.user.id) {
     return res.status(400).json({ success: false, error: 'Cannot deactivate your own account' });
   }
-  db.prepare("UPDATE users SET is_active=0, status='Inactive' WHERE id=?").run(req.params.id);
+  await db.run("UPDATE users SET is_active=0, status='Inactive' WHERE id=?", [req.params.id]);
   logAudit(req, { action: 'DEACTIVATE_USER', entity: 'users', entityId: req.params.id, actor: req.user });
   res.json({ success: true });
 });
@@ -125,21 +125,21 @@ router.delete('/users/:id', (req, res) => {
 // ── Password Reset Module (requirement spec §2) ────────────────────────────────
 // Admin-initiated reset: generates a temp password, forces change on next login.
 router.post('/users/:id/reset-password', async (req, res) => {
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  const user = await db.get('SELECT * FROM users WHERE id = ?', [req.params.id]);
   if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
   const tempPassword = generateTempPassword();
   const hashed = await hashPassword(tempPassword);
 
-  db.prepare(`
+  await db.run(`
     UPDATE users SET password = ?, must_change_password = 1, password_changed_at = datetime('now'),
       failed_login_attempts = 0, locked_until = NULL, status = 'Active'
     WHERE id = ?
-  `).run(hashed, user.id);
+  `, [hashed, user.id]);
 
-  db.prepare(`
+  await db.run(`
     INSERT INTO password_resets (user_id, initiated_by, temp_password_hash, must_change) VALUES (?,?,?,1)
-  `).run(user.id, req.user.id, hashed);
+  `, [user.id, req.user.id, hashed]);
 
   logAudit(req, { action: 'PASSWORD_RESET', entity: 'users', entityId: user.id, status: 'success', actor: req.user });
   queueNotification({ event: 'password_reset', userId: user.id, context: { mustChange: true } });
@@ -148,23 +148,23 @@ router.post('/users/:id/reset-password', async (req, res) => {
 });
 
 // Force the user to change their password on next login (without resetting it now).
-router.post('/users/:id/force-reset', (req, res) => {
-  db.prepare("UPDATE users SET must_change_password = 1 WHERE id = ?").run(req.params.id);
+router.post('/users/:id/force-reset', async (req, res) => {
+  await db.run("UPDATE users SET must_change_password = 1 WHERE id = ?", [req.params.id]);
   logAudit(req, { action: 'FORCE_PASSWORD_RESET', entity: 'users', entityId: req.params.id, actor: req.user });
   res.json({ success: true });
 });
 
 // Unlock an account locked out by failed login attempts.
-router.post('/users/:id/unlock', (req, res) => {
-  db.prepare(`
+router.post('/users/:id/unlock', async (req, res) => {
+  await db.run(`
     UPDATE users SET status='Active', failed_login_attempts=0, locked_until=NULL WHERE id=?
-  `).run(req.params.id);
+  `, [req.params.id]);
   logAudit(req, { action: 'UNLOCK_ACCOUNT', entity: 'users', entityId: req.params.id, actor: req.user });
   res.json({ success: true });
 });
 
 // ── Audit log (requirement spec §3) ─────────────────────────────────────────────
-router.get('/audit', (req, res) => {
+router.get('/audit', async (req, res) => {
   const { page = 1, limit = 50, action, username, status, from, to } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
 
@@ -177,18 +177,18 @@ router.get('/audit', (req, res) => {
   if (to)       { where.push('created_at <= ?'); params.push(to); }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-  const rows = db.prepare(`
+  const rows = await db.all(`
     SELECT * FROM audit_log ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?
-  `).all(...params, parseInt(limit), offset);
+  `, [...params, parseInt(limit), offset]);
 
-  const total = db.prepare(`SELECT COUNT(*) as c FROM audit_log ${whereSql}`).get(...params).c;
-  res.json({ success: true, total, data: rows });
+  const totalRow = await db.get(`SELECT COUNT(*) as c FROM audit_log ${whereSql}`, params);
+  res.json({ success: true, total: totalRow.c, data: rows });
 });
 
 // GET /api/admin/audit/export?format=csv|excel|pdf
-router.get('/audit/export', (req, res) => {
+router.get('/audit/export', async (req, res) => {
   const format = (req.query.format || 'csv').toLowerCase();
-  const rows = db.prepare('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 5000').all();
+  const rows = await db.all('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 5000');
 
   logAudit(req, { action: 'AUDIT_EXPORT', entity: 'audit_log', details: `format=${format}, rows=${rows.length}`, actor: req.user });
 
@@ -231,20 +231,20 @@ router.get('/audit/export', (req, res) => {
 });
 
 // ── System settings (requirement spec §12) ──────────────────────────────────────
-router.get('/settings', (req, res) => {
-  const rows = db.prepare('SELECT key, value FROM system_settings').all();
+router.get('/settings', async (req, res) => {
+  const rows = await db.all('SELECT key, value FROM system_settings');
   const settings = Object.fromEntries(rows.map(r => [r.key, r.value]));
   res.json({ success: true, settings });
 });
 
-router.put('/settings', (req, res) => {
+router.put('/settings', async (req, res) => {
   const updates = req.body || {};
-  const stmt = db.prepare(`
+  const sql = `
     INSERT INTO system_settings (key, value, updated_by, updated_at) VALUES (?,?,?, datetime('now'))
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = datetime('now')
-  `);
+  `;
   for (const [key, value] of Object.entries(updates)) {
-    stmt.run(key, String(value), req.user.id);
+    await db.run(sql, [key, String(value), req.user.id]);
   }
   logAudit(req, { action: 'SETTINGS_UPDATE', entity: 'system_settings', newValue: updates, actor: req.user });
   res.json({ success: true });
@@ -257,7 +257,7 @@ router.put('/settings', (req, res) => {
 // and "how much we've actually been using it."
 router.get('/api-usage', async (req, res) => {
   const axios = require('axios');
-  const usage = { trackingmore: null, seventeentrack: null, callStats: getApiHealth(24) };
+  const usage = { trackingmore: null, seventeentrack: null, callStats: await getApiHealth(24) };
 
   if (process.env.TRACKINGMORE_API_KEY) {
     try {
@@ -317,13 +317,16 @@ router.get('/api-usage', async (req, res) => {
 // The Settings page polls this to show an in-app popup; acknowledging it
 // (query ?ack=1) clears it so it doesn't reappear until the next day's check
 // finds a new batch.
-router.get('/retention-warning', (req, res) => {
-  const count = parseInt(db.prepare("SELECT value FROM system_settings WHERE key='_retention_warning_count'").get()?.value || '0', 10);
-  const sampleRaw = db.prepare("SELECT value FROM system_settings WHERE key='_retention_warning_sample'").get()?.value;
-  const at = db.prepare("SELECT value FROM system_settings WHERE key='_retention_warning_at'").get()?.value || null;
+router.get('/retention-warning', async (req, res) => {
+  const countRow = await db.get("SELECT value FROM system_settings WHERE key='_retention_warning_count'");
+  const sampleRow = await db.get("SELECT value FROM system_settings WHERE key='_retention_warning_sample'");
+  const atRow = await db.get("SELECT value FROM system_settings WHERE key='_retention_warning_at'");
+  const count = parseInt(countRow?.value || '0', 10);
+  const sampleRaw = sampleRow?.value;
+  const at = atRow?.value || null;
 
   if (req.query.ack === '1') {
-    db.prepare("DELETE FROM system_settings WHERE key IN ('_retention_warning_count','_retention_warning_sample','_retention_warning_at')").run();
+    await db.run("DELETE FROM system_settings WHERE key IN ('_retention_warning_count','_retention_warning_sample','_retention_warning_at')");
     return res.json({ success: true, acknowledged: true });
   }
 
@@ -337,8 +340,8 @@ router.get('/retention-warning', (req, res) => {
 });
 
 // ── Clear tracking cache (force fresh API call) ───────────────────────────────
-router.delete('/cache/:geNumber', (req, res) => {
-  db.prepare('DELETE FROM tracking_cache WHERE ge_tracking_number = ?').run(req.params.geNumber);
+router.delete('/cache/:geNumber', async (req, res) => {
+  await db.run('DELETE FROM tracking_cache WHERE ge_tracking_number = ?', [req.params.geNumber]);
   logAudit(req, { action: 'CACHE_CLEAR', entity: 'tracking_cache', entityId: req.params.geNumber, actor: req.user });
   res.json({ success: true, message: 'Cache cleared' });
 });

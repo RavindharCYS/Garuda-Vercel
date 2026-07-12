@@ -11,18 +11,18 @@ const router = express.Router();
 router.use(requireAuth, requirePermission('notifications.manage'));
 
 // GET /api/notifications — list recent notifications, optional ?status= filter
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const { status, page = 1, limit = 50 } = req.query;
   const where = status ? 'WHERE status = ?' : '';
   const params = status ? [status] : [];
   const offset = (parseInt(page) - 1) * parseInt(limit);
 
-  const rows = db.prepare(`
+  const rows = await db.all(`
     SELECT n.*, u.username FROM notifications n LEFT JOIN users u ON u.id = n.user_id
     ${where} ORDER BY n.created_at DESC LIMIT ? OFFSET ?
-  `).all(...params, parseInt(limit), offset);
-  const total = db.prepare(`SELECT COUNT(*) as c FROM notifications ${where}`).get(...params).c;
-  res.json({ success: true, total, data: rows });
+  `, [...params, parseInt(limit), offset]);
+  const totalRow = await db.get(`SELECT COUNT(*) as c FROM notifications ${where}`, params);
+  res.json({ success: true, total: totalRow.c, data: rows });
 });
 
 // POST /api/notifications/retry — flush the Queued/Failed queue now

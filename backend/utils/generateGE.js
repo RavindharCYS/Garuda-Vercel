@@ -8,14 +8,14 @@ const crypto = require('crypto');
  * Format: GE + 7 random digits (e.g. GE2847391)
  * Total: 9 chars — unpredictable, collision-resistant via DB check.
  */
-function generateGENumber(db) {
+async function generateGENumber(db) {
   let geNum;
   let attempts = 0;
   do {
     // Generate 7 cryptographically random digits
     const rand = parseInt(crypto.randomBytes(4).readUInt32BE(0) % 9000000) + 1000000;
     geNum = `GE${rand}`;
-    const exists = db.prepare('SELECT 1 FROM shipments WHERE ge_tracking_number = ?').get(geNum);
+    const exists = await db.get('SELECT 1 FROM shipments WHERE ge_tracking_number = ?', [geNum]);
     if (!exists) break;
     attempts++;
   } while (attempts < 100);

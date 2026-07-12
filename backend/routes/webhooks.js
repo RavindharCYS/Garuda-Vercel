@@ -22,7 +22,7 @@ const router = express.Router();
 // Signature: SHA256(rawBody + '/' + TRACKINGMORE_API_KEY), per their docs'
 // worked example. req.rawBody is captured by the global express.json()
 // verify hook in server.js.
-router.post('/trackingmore', (req, res) => {
+router.post('/trackingmore', async (req, res) => {
   try {
     const signature = req.body?.verify?.signature;
     if (signature && !verifyTrackingMoreSignature(req.rawBody, signature)) {
@@ -39,7 +39,7 @@ router.post('/trackingmore', (req, res) => {
       timestamp: e.checkpoint_date, status: e.tracking_detail, location: e.location || '',
     })).reverse();
 
-    const result = processWebhookUpdate({
+    const result = await processWebhookUpdate({
       provider: 'trackingmore',
       trackingNumber: data.tracking_number,
       currentStatus: mapTrackingMoreStatus(data.delivery_status),
@@ -62,7 +62,7 @@ router.post('/trackingmore', (req, res) => {
 // formula, we process the payload as-is and just log the header for now —
 // wire up real verification here once 17Track's exact algorithm is confirmed
 // from their dashboard/support.
-router.post('/17track', (req, res) => {
+router.post('/17track', async (req, res) => {
   try {
     const signature = req.headers['sign'];
     if (signature) logger.info('[Webhook:17Track] signature header present (not verified — see comment above)');
@@ -84,7 +84,7 @@ router.post('/17track', (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing number in payload' });
     }
 
-    const result = processWebhookUpdate({
+    const result = await processWebhookUpdate({
       provider: '17track',
       trackingNumber: data.number,
       currentStatus: map17TrackStatus(trackInfo?.latest_status?.status),

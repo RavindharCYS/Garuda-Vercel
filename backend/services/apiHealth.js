@@ -6,14 +6,15 @@
 const db     = require('../utils/db');
 const { logAudit } = require('../utils/audit');
 
-const STMT = db.prepare(`
+const INSERT_SQL = `
   INSERT INTO api_logs (provider, endpoint, success, status_code, response_ms, error)
-  VALUES (@provider, @endpoint, @success, @statusCode, @responseMs, @error)
-`);
+  VALUES (?, ?, ?, ?, ?, ?)
+`;
 
-function logApiCall({ provider, endpoint = null, success, statusCode = null, responseMs = null, error = null }) {
+/** Fire-and-forget by design — telemetry must never throw or block the caller. */
+async function logApiCall({ provider, endpoint = null, success, statusCode = null, responseMs = null, error = null }) {
   try {
-    STMT.run({ provider, endpoint, success: success ? 1 : 0, statusCode, responseMs, error });
+    await db.run(INSERT_SQL, [provider, endpoint, success ? 1 : 0, statusCode, responseMs, error]);
     if (!success) {
       // Surface failures into the audit trail too, per spec's "API Failures" action.
       logAudit(null, {
@@ -28,8 +29,8 @@ function logApiCall({ provider, endpoint = null, success, statusCode = null, res
 }
 
 /** Aggregate success-rate stats per provider over the last N hours (for dashboard). */
-function getApiHealth(hours = 24) {
-  return db.prepare(`
+async function getApiHealth(hours = 24) {
+  return db.all(`
     SELECT provider,
            COUNT(*) as total,
            SUM(success) as successes,
@@ -39,7 +40,7 @@ function getApiHealth(hours = 24) {
     WHERE created_at >= datetime('now', ?)
     GROUP BY provider
     ORDER BY provider
-  `).all(`-${hours} hours`);
+  `, [`-${hours} hours`]);
 }
 
 module.exports = { logApiCall, getApiHealth };

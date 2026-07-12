@@ -97,15 +97,15 @@ function map17TrackStatus(raw) {
  * exactly as populated by the most recent webhook push (or manual refresh).
  */
 async function getStoredTracking(geNumber) {
-  const shipment = db.prepare('SELECT * FROM shipments WHERE ge_tracking_number = ?').get(geNumber);
+  const shipment = await db.get('SELECT * FROM shipments WHERE ge_tracking_number = ?', [geNumber]);
   if (!shipment) {
     return { success: false, error: 'Tracking number not found in our system.', hint: 'GE numbers look like GE2847391' };
   }
 
-  const events = db.prepare(`
+  const events = await db.all(`
     SELECT event_timestamp AS timestamp, status, location
     FROM tracking_events WHERE ge_tracking_number = ? ORDER BY event_timestamp DESC, id DESC LIMIT 20
-  `).all(geNumber);
+  `, [geNumber]);
 
   if (!events.length) {
     return {
@@ -199,7 +199,7 @@ async function identifyCarrier(trackingNumber, knownCarrierName) {
  * pushes updates to routes/webhooks.js — we just wait.
  */
 async function registerForTracking(shipmentId) {
-  const shipment = db.prepare('SELECT * FROM shipments WHERE id = ?').get(shipmentId);
+  const shipment = await db.get('SELECT * FROM shipments WHERE id = ?', [shipmentId]);
   if (!shipment) return { success: false, error: 'Shipment not found' };
 
   const ctn = shipment.carrier_tracking_number || shipment.awb_number;
@@ -215,7 +215,7 @@ async function registerForTracking(shipmentId) {
       const result = await registerWithTrackingMore(ctn, identified.carrierName, identified.courierCode);
       logApiCall({ provider: 'trackingmore', endpoint: 'register', success: !!result.success, responseMs: Date.now() - start });
       if (result.success) {
-        persistRegistration(shipment, result.carrierName, result.courierCode, 'trackingmore');
+        await persistRegistration(shipment, result.carrierName, result.courierCode, 'trackingmore');
         return { success: true, provider: 'trackingmore', carrierName: result.carrierName };
       }
       errors.push(`TrackingMore: ${result.error}`);
@@ -234,7 +234,7 @@ async function registerForTracking(shipmentId) {
       const result = await registerWith17Track(ctn, identified.carrierName);
       logApiCall({ provider: '17track', endpoint: 'register', success: !!result.success, responseMs: Date.now() - start });
       if (result.success) {
-        persistRegistration(shipment, result.carrierName, result.courierCode, '17track');
+        await persistRegistration(shipment, result.carrierName, result.courierCode, '17track');
         return { success: true, provider: '17track', carrierName: result.carrierName };
       }
       errors.push(`17Track: ${result.error}`);
@@ -249,7 +249,7 @@ async function registerForTracking(shipmentId) {
   // ── Both failed / unconfigured → Manual Tracking Queue ────────────────────
   const errorSummary = errors.join(' · ');
   const wasAlreadyFlagged = !!shipment.needs_manual_tracking;
-  db.prepare('UPDATE shipments SET needs_manual_tracking = 1, registration_error = ? WHERE id = ?').run(errorSummary, shipment.id);
+  await db.run('UPDATE shipments SET needs_manual_tracking = 1, registration_error = ? WHERE id = ?', [errorSummary, shipment.id]);
   if (!wasAlreadyFlagged) {
     logAudit(null, { action: 'TRACKING_REGISTER', entity: 'shipments', entityId: shipment.id, status: 'failure',
       details: `${shipment.ge_tracking_number}: ${errorSummary}`, actor: { username: 'system' } });
@@ -257,15 +257,15 @@ async function registerForTracking(shipmentId) {
   return { success: false, error: errorSummary || 'Could not register with any tracking provider.' };
 }
 
-function persistRegistration(shipment, carrierName, courierCode, provider) {
-  db.prepare(`
+async function persistRegistration(shipment, carrierName, courierCode, provider) {
+  await db.run(`
     UPDATE shipments SET
       carrier = COALESCE(carrier, ?),
       carrier_code = ?, carrier_code_provider = ?,
       tracking_registered = 1, tracking_registered_at = datetime('now'),
       needs_manual_tracking = 0, registration_error = NULL
     WHERE id = ?
-  `).run(carrierName || null, courierCode != null ? String(courierCode) : null, provider, shipment.id);
+  `, [carrierName || null, courierCode != null ? String(courierCode) : null, provider, shipment.id]);
 }
 
 async function registerWithTrackingMore(trackingNumber, carrierName, knownCourierCode) {
@@ -326,7 +326,7 @@ async function registerWith17Track(trackingNumber, carrierName) {
  * not automatic. Uses whichever provider this shipment is registered with.
  */
 async function manualRefresh(geNumber) {
-  const shipment = db.prepare('SELECT * FROM shipments WHERE ge_tracking_number = ?').get(geNumber);
+  const shipment = await db.get('SELECT * FROM shipments WHERE ge_tracking_number = ?', [geNumber]);
   if (!shipment) return { success: false, error: 'Tracking number not found in our system.' };
   const ctn = shipment.carrier_tracking_number || shipment.awb_number;
   if (!ctn) return { success: false, error: 'No carrier tracking number on file for this shipment.' };
@@ -336,7 +336,8 @@ async function manualRefresh(geNumber) {
     if (!reg.success) return reg;
   }
 
-  const provider = shipment.carrier_code_provider || (db.prepare('SELECT carrier_code_provider FROM shipments WHERE id = ?').get(shipment.id)?.carrier_code_provider);
+  const refreshed = await db.get('SELECT carrier_code_provider FROM shipments WHERE id = ?', [shipment.id]);
+  const provider = shipment.carrier_code_provider || refreshed?.carrier_code_provider;
   const start = Date.now();
   try {
     let normalized = null;
@@ -357,7 +358,7 @@ async function manualRefresh(geNumber) {
     logApiCall({ provider: provider || 'unknown', endpoint: 'manual_refresh', success: !!normalized, responseMs: Date.now() - start });
     if (!normalized) return { success: false, error: 'No tracking data available yet from the provider.' };
 
-    recordTrackingEvents(shipment, normalized, provider || 'unknown');
+    await recordTrackingEvents(shipment, normalized, provider || 'unknown');
     return { success: true, provider, currentStatus: normalized.currentStatus };
   } catch (err) {
     logApiCall({ provider: provider || 'unknown', endpoint: 'manual_refresh', success: false, responseMs: Date.now() - start, error: err.message });
@@ -370,26 +371,26 @@ async function manualRefresh(geNumber) {
  * update. This — not any polling loop — is how tracking_status and
  * tracking_events actually get kept current from now on.
  */
-function processWebhookUpdate({ provider, trackingNumber, currentStatus, events }) {
-  const shipment = db.prepare(`
+async function processWebhookUpdate({ provider, trackingNumber, currentStatus, events }) {
+  const shipment = await db.get(`
     SELECT * FROM shipments WHERE carrier_tracking_number = ? OR awb_number = ? ORDER BY id DESC LIMIT 1
-  `).get(trackingNumber, trackingNumber);
+  `, [trackingNumber, trackingNumber]);
   if (!shipment) {
     logger.warn(`[Webhook:${provider}] update for unknown tracking number`, { trackingNumber });
     return { success: false, error: 'No matching shipment' };
   }
-  recordTrackingEvents(shipment, { currentStatus, events }, provider);
-  db.prepare('UPDATE shipments SET needs_manual_tracking = 0 WHERE id = ?').run(shipment.id);
+  await recordTrackingEvents(shipment, { currentStatus, events }, provider);
+  await db.run('UPDATE shipments SET needs_manual_tracking = 0 WHERE id = ?', [shipment.id]);
   return { success: true, shipmentId: shipment.id, ge_tracking_number: shipment.ge_tracking_number };
 }
 
-function recordTrackingEvents(shipment, normalized, provider) {
-  const insert = db.prepare(`
+async function recordTrackingEvents(shipment, normalized, provider) {
+  const INSERT_SQL = `
     INSERT INTO tracking_events (shipment_id, ge_tracking_number, event_timestamp, status, location, provider, raw)
     VALUES (?,?,?,?,?,?,?)
-  `);
+  `;
   for (const ev of (normalized.events || []).slice(0, 20)) {
-    insert.run(shipment.id, shipment.ge_tracking_number, ev.timestamp || null, ev.status || null, ev.location || null, provider, JSON.stringify(ev));
+    await db.run(INSERT_SQL, [shipment.id, shipment.ge_tracking_number, ev.timestamp || null, ev.status || null, ev.location || null, provider, JSON.stringify(ev)]);
   }
 
   const newStatus = normalized.currentStatus || null;
@@ -410,7 +411,7 @@ function recordTrackingEvents(shipment, normalized, provider) {
   const curRank = STATUS_RANK[shipment.status] ?? 0;
   const shouldAdvanceStatus = mappedStatus && newRank !== undefined && newRank >= curRank;
 
-  db.prepare(`
+  await db.run(`
     UPDATE shipments SET
       tracking_status = ?,
       status = CASE WHEN ? THEN ? ELSE status END,
@@ -418,7 +419,7 @@ function recordTrackingEvents(shipment, normalized, provider) {
       last_status_change_at = CASE WHEN ? THEN datetime('now') ELSE last_status_change_at END,
       delivered_at = CASE WHEN ? = 'Delivered' AND delivered_at IS NULL THEN datetime('now') ELSE delivered_at END
     WHERE id = ?
-  `).run(newStatus, shouldAdvanceStatus ? 1 : 0, mappedStatus, statusChanged ? 1 : 0, newStatus, shipment.id);
+  `, [newStatus, shouldAdvanceStatus ? 1 : 0, mappedStatus, statusChanged ? 1 : 0, newStatus, shipment.id]);
 }
 
 /**

@@ -39,7 +39,7 @@ const VENDOR_PARSERS = {
 
 const WAYBILL_DIR = path.join(__dirname, '../../uploads/waybills');
 
-const INSERT_SHIPMENT = db.prepare(`
+const INSERT_SHIPMENT_SQL = `
   INSERT INTO shipments (
     ge_tracking_number, vendor, carrier,
     carrier_tracking_number, awb_number, reference_number,
@@ -58,8 +58,8 @@ const INSERT_SHIPMENT = db.prepare(`
     ?,?,?,?,?,
     ?,?,?,
     ?, datetime('now')
-  )
-`);
+  ) RETURNING id
+`;
 
 function shipmentValues(ge, record, userId, autoTrackingEnabled) {
   return [
@@ -82,8 +82,8 @@ function shipmentValues(ge, record, userId, autoTrackingEnabled) {
  * via the "complete a pending row" endpoint (routes/bulkUpload.js).
  */
 async function createShipmentFromRecord(record, uploadedBy, { autoTrackingEnabled = true, generateWaybills = true } = {}) {
-  const ge = generateGENumber(db);
-  const info = INSERT_SHIPMENT.run(...shipmentValues(ge, record, uploadedBy, autoTrackingEnabled));
+  const ge = await generateGENumber(db);
+  const info = await db.run(INSERT_SHIPMENT_SQL, shipmentValues(ge, record, uploadedBy, autoTrackingEnabled));
   const shipmentId = info.lastInsertRowid;
 
   if (autoTrackingEnabled && (record.carrier_tracking_number || record.awb_number)) {
@@ -94,10 +94,10 @@ async function createShipmentFromRecord(record, uploadedBy, { autoTrackingEnable
   if (generateWaybills) {
     if (!fs.existsSync(WAYBILL_DIR)) fs.mkdirSync(WAYBILL_DIR, { recursive: true });
     try {
-      const shipmentRow = db.prepare('SELECT * FROM shipments WHERE id = ?').get(shipmentId);
+      const shipmentRow = await db.get('SELECT * FROM shipments WHERE id = ?', [shipmentId]);
       const outputPath = path.join(WAYBILL_DIR, `GE_${ge}_${Date.now()}.pdf`);
       await generateWaybill(shipmentRow, outputPath);
-      db.prepare(`UPDATE shipments SET garuda_waybill_generated = 1, updated_at = datetime('now') WHERE id = ?`).run(shipmentId);
+      await db.run(`UPDATE shipments SET garuda_waybill_generated = 1, updated_at = datetime('now') WHERE id = ?`, [shipmentId]);
     } catch (err) {
       // Shipment is already saved and trackable — a waybill PDF failure
       // shouldn't roll that back, just log it.
@@ -134,7 +134,7 @@ async function importExcelShipments({
   // Review job — every row (valid or not) gets a bulk_upload_records entry,
   // so invalid rows have somewhere to live for the admin to fix instead of
   // just being reported in a one-time summary and lost.
-  const jobId = createJob({ uploadedBy, fileName: fileName || path.basename(filePath), fileType: 'excel' });
+  const jobId = await createJob({ uploadedBy, fileName: fileName || path.basename(filePath), fileType: 'excel' });
 
   let imported = 0, duplicates = 0, invalid = 0, generatedWaybills = 0;
   const pending = []; // rows that need the admin to fill in missing fields
@@ -147,13 +147,13 @@ async function importExcelShipments({
 
     // ── Validation Rules — required fields ─────────────────────────────────
     const check = validateShipmentRecord(record);
-    const duplicate = check.valid && isDuplicateAWB(record.carrier_tracking_number);
+    const duplicate = check.valid && (await isDuplicateAWB(record.carrier_tracking_number));
     const errors = duplicate ? [...check.errors, 'Duplicate Shipment — Tracking Number already exists'] : check.errors;
 
     if (!check.valid || duplicate) {
       invalid += !check.valid ? 1 : 0;
       duplicates += duplicate ? 1 : 0;
-      const recordId = addRecord(jobId, rowNumber, record, { valid: false, errors, warnings: [], detectedCarrier: vendor });
+      const recordId = await addRecord(jobId, rowNumber, record, { valid: false, errors, warnings: [], detectedCarrier: vendor });
       pending.push({ recordId, row: rowNumber, trackingNumber: record.carrier_tracking_number || null, reason: errors.join('; ') });
       continue;
     }
@@ -169,22 +169,22 @@ async function importExcelShipments({
     } catch (err) {
       logger.error('Excel import: shipment insert failed', { row: rowNumber, error: err.message });
       invalid++;
-      const recordId = addRecord(jobId, rowNumber, record, { valid: false, errors: ['Could not save shipment: ' + err.message], warnings: [], detectedCarrier: vendor });
+      const recordId = await addRecord(jobId, rowNumber, record, { valid: false, errors: ['Could not save shipment: ' + err.message], warnings: [], detectedCarrier: vendor });
       pending.push({ recordId, row: rowNumber, trackingNumber: record.carrier_tracking_number || null, reason: 'Could not save shipment: ' + err.message });
       continue;
     }
 
-    const recordId = addRecord(jobId, rowNumber, record, { valid: true, errors: [], warnings: [], detectedCarrier: vendor });
-    db.prepare('UPDATE bulk_upload_records SET shipment_id = ?, validation_status = ? WHERE id = ?').run(created.id, 'Imported', recordId);
+    const recordId = await addRecord(jobId, rowNumber, record, { valid: true, errors: [], warnings: [], detectedCarrier: vendor });
+    await db.run('UPDATE bulk_upload_records SET shipment_id = ?, validation_status = ? WHERE id = ?', [created.id, 'Imported', recordId]);
 
     shipments.push({ id: created.id, ge_tracking_number: created.ge_tracking_number, tracking_number: record.carrier_tracking_number });
   }
 
   generatedWaybills = shipments.length
-    ? db.prepare(`SELECT COUNT(*) c FROM shipments WHERE id IN (${shipments.map(() => '?').join(',')}) AND garuda_waybill_generated = 1`).get(...shipments.map(s => s.id)).c
+    ? (await db.get(`SELECT COUNT(*) c FROM shipments WHERE id IN (${shipments.map(() => '?').join(',')}) AND garuda_waybill_generated = 1`, shipments.map(s => s.id))).c
     : 0;
 
-  finalizeJob(jobId);
+  await finalizeJob(jobId);
 
   return { jobId, vendor, rowsRead, imported, duplicates, invalid, generatedWaybills, pending, skipped: pending, shipments };
 }

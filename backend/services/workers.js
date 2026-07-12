@@ -14,15 +14,15 @@ const { processQueue, notifySystemRecipients, notifyITError } = require('./notif
 
 let started = false;
 
-function getSetting(key, fallback) {
-  const row = db.prepare('SELECT value FROM system_settings WHERE key = ?').get(key);
+async function getSetting(key, fallback) {
+  const row = await db.get('SELECT value FROM system_settings WHERE key = ?', [key]);
   return row?.value ?? fallback;
 }
-function setSetting(key, value) {
-  db.prepare(`
+async function setSetting(key, value) {
+  await db.run(`
     INSERT INTO system_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-  `).run(key, value);
+  `, [key, value]);
 }
 
 function startWorkers() {
@@ -38,14 +38,14 @@ function startWorkers() {
   // needs this worker again. ───────────────────────────────────────────────
   cron.schedule('*/15 * * * *', async () => {
     try {
-      const pending = db.prepare(`
+      const pending = await db.all(`
         SELECT id, ge_tracking_number FROM shipments
         WHERE auto_tracking_enabled = 1
           AND carrier_tracking_number IS NOT NULL
           AND tracking_registered = 0
           AND (tracking_status IS NULL OR tracking_status != 'Delivered')
         LIMIT 100
-      `).all();
+      `);
 
       let registered = 0;
       for (const s of pending) {
@@ -74,14 +74,14 @@ function startWorkers() {
   // delivered if it could reach this server. ────────────────────────────────
   cron.schedule('*/30 * * * *', async () => {
     try {
-      const stale = db.prepare(`
+      const stale = await db.all(`
         SELECT ge_tracking_number, last_tracking_update FROM shipments
         WHERE tracking_registered = 1
           AND carrier_tracking_number IS NOT NULL
           AND (tracking_status IS NULL OR tracking_status != 'Delivered')
           AND (last_tracking_update IS NULL OR datetime(last_tracking_update) <= datetime('now', '-25 minutes'))
         LIMIT 100
-      `).all();
+      `);
 
       let updated = 0;
       for (const s of stale) {
@@ -101,8 +101,8 @@ function startWorkers() {
   // configured notify_email_recipients / notify_whatsapp_recipients. ───────
   cron.schedule('0 6 * * *', async () => {
     try {
-      const lagDays = parseInt(getSetting('lag_status_days', '7'), 10) || 7;
-      const lagged = db.prepare(`
+      const lagDays = parseInt(await getSetting('lag_status_days', '7'), 10) || 7;
+      const lagged = await db.all(`
         SELECT ge_tracking_number, tracking_status, to_name, to_country,
                COALESCE(last_status_change_at, created_at) AS since
         FROM shipments
@@ -111,7 +111,7 @@ function startWorkers() {
           AND datetime(COALESCE(last_status_change_at, created_at)) <= datetime('now', ?)
         ORDER BY since ASC
         LIMIT 500
-      `).all(`-${lagDays} days`);
+      `, [`-${lagDays} days`]);
 
       if (lagged.length) {
         const lines = lagged.slice(0, 50).map(s =>
@@ -136,20 +136,31 @@ function startWorkers() {
   // the Settings page to show an in-app popup on next visit. ───────────────
   cron.schedule('0 7 * * *', async () => {
     try {
-      const retentionMonths = parseInt(getSetting('retention_months', '6'), 10) || 6;
-      const warningDays = parseInt(getSetting('retention_warning_days', '30'), 10) || 30;
+      const retentionMonths = parseInt(await getSetting('retention_months', '6'), 10) || 6;
+      const warningDays = parseInt(await getSetting('retention_warning_days', '30'), 10) || 30;
 
-      const upcoming = db.prepare(`
-        SELECT ge_tracking_number, delivered_at FROM shipments
-        WHERE archived = 0 AND delivered_at IS NOT NULL
-          AND date(delivered_at, '+' || ? || ' months') <= date('now', '+' || ? || ' days')
-          AND date(delivered_at, '+' || ? || ' months') > date('now')
-      `).all(retentionMonths, warningDays, retentionMonths);
+      // Dynamic "+N months"/"+N days" date math is written per-dialect: SQLite's
+      // date('now', '+' || ? || ' days') string-modifier style has no direct
+      // Postgres equivalent, so Postgres gets its own interval-arithmetic query.
+      const upcomingSql = db.isPg
+        ? `
+          SELECT ge_tracking_number, delivered_at FROM shipments
+          WHERE archived = 0 AND delivered_at IS NOT NULL
+            AND (delivered_at::date + (?::text || ' months')::interval) <= (CURRENT_DATE + (?::text || ' days')::interval)
+            AND (delivered_at::date + (?::text || ' months')::interval) > CURRENT_DATE
+        `
+        : `
+          SELECT ge_tracking_number, delivered_at FROM shipments
+          WHERE archived = 0 AND delivered_at IS NOT NULL
+            AND date(delivered_at, '+' || ? || ' months') <= date('now', '+' || ? || ' days')
+            AND date(delivered_at, '+' || ? || ' months') > date('now')
+        `;
+      const upcoming = await db.all(upcomingSql, [retentionMonths, warningDays, retentionMonths]);
 
       if (upcoming.length) {
-        setSetting('_retention_warning_count', String(upcoming.length));
-        setSetting('_retention_warning_sample', JSON.stringify(upcoming.slice(0, 20).map(s => s.ge_tracking_number)));
-        setSetting('_retention_warning_at', new Date().toISOString());
+        await setSetting('_retention_warning_count', String(upcoming.length));
+        await setSetting('_retention_warning_sample', JSON.stringify(upcoming.slice(0, 20).map(s => s.ge_tracking_number)));
+        await setSetting('_retention_warning_at', new Date().toISOString());
 
         const subject = `Backup warning: ${upcoming.length} shipment(s) reach the ${retentionMonths}-month retention limit within ${warningDays} days`;
         const body = `These delivered shipments will be backed up and removed from the live system within the next ${warningDays} days, per your ${retentionMonths}-month retention setting:\n\n` +
@@ -169,12 +180,19 @@ function startWorkers() {
   // written to a JSON backup file BEFORE being removed from the live table. ──
   cron.schedule('0 2 * * *', async () => {
     try {
-      const retentionMonths = parseInt(getSetting('retention_months', '6'), 10) || 6;
-      const due = db.prepare(`
-        SELECT * FROM shipments
-        WHERE archived = 0 AND delivered_at IS NOT NULL
-          AND date(delivered_at, '+' || ? || ' months') <= date('now')
-      `).all(retentionMonths);
+      const retentionMonths = parseInt(await getSetting('retention_months', '6'), 10) || 6;
+      const dueSql = db.isPg
+        ? `
+          SELECT * FROM shipments
+          WHERE archived = 0 AND delivered_at IS NOT NULL
+            AND (delivered_at::date + (?::text || ' months')::interval) <= CURRENT_DATE
+        `
+        : `
+          SELECT * FROM shipments
+          WHERE archived = 0 AND delivered_at IS NOT NULL
+            AND date(delivered_at, '+' || ? || ' months') <= date('now')
+        `;
+      const due = await db.all(dueSql, [retentionMonths]);
 
       if (!due.length) return;
 
@@ -185,18 +203,18 @@ function startWorkers() {
       for (const shipment of due) {
         try {
           const backupPath = path.join(backupDir, `${shipment.ge_tracking_number}.json`);
-          const events = db.prepare('SELECT * FROM tracking_events WHERE shipment_id = ?').all(shipment.id);
+          const events = await db.all('SELECT * FROM tracking_events WHERE shipment_id = ?', [shipment.id]);
           fs.writeFileSync(backupPath, JSON.stringify({ shipment, trackingEvents: events }, null, 2));
 
-          db.prepare(`
+          await db.run(`
             INSERT INTO shipment_backups (ge_tracking_number, backup_path, delivered_at) VALUES (?, ?, ?)
-          `).run(shipment.ge_tracking_number, backupPath, shipment.delivered_at);
+          `, [shipment.ge_tracking_number, backupPath, shipment.delivered_at]);
 
           // bulk_upload_records.shipment_id has no ON DELETE CASCADE — detach
           // it first so the FK constraint (foreign_keys=ON) doesn't block
           // the delete below.
-          db.prepare('UPDATE bulk_upload_records SET shipment_id = NULL WHERE shipment_id = ?').run(shipment.id);
-          db.prepare('DELETE FROM shipments WHERE id = ?').run(shipment.id); // cascades tracking_events, shipment_documents
+          await db.run('UPDATE bulk_upload_records SET shipment_id = NULL WHERE shipment_id = ?', [shipment.id]);
+          await db.run('DELETE FROM shipments WHERE id = ?', [shipment.id]); // cascades tracking_events, shipment_documents
           purged++;
         } catch (err) {
           logger.error('[Worker:RetentionBackup] failed for one shipment', { ge: shipment.ge_tracking_number, error: err.message });
@@ -221,10 +239,10 @@ function startWorkers() {
 
   // ── Audit Retention Worker — once daily at 03:00, purges audit_log rows
   // older than system_settings.audit_retention_days (default 365). ───────────
-  cron.schedule('0 3 * * *', () => {
+  cron.schedule('0 3 * * *', async () => {
     try {
-      const days = parseInt(getSetting('audit_retention_days', '365'), 10);
-      const info = db.prepare(`DELETE FROM audit_log WHERE created_at < datetime('now', ?)`).run(`-${days} days`);
+      const days = parseInt(await getSetting('audit_retention_days', '365'), 10);
+      const info = await db.run(`DELETE FROM audit_log WHERE created_at < datetime('now', ?)`, [`-${days} days`]);
       if (info.changes) logger.info(`[Worker:AuditRetention] purged ${info.changes} row(s) older than ${days} days`);
     } catch (err) {
       logger.error('[Worker:AuditRetention] failed', { error: err.message });
@@ -232,9 +250,9 @@ function startWorkers() {
   });
 
   // ── Stale Cache Cleanup — every 6h (carried over from v1.0). ─────────────────
-  cron.schedule('0 */6 * * *', () => {
+  cron.schedule('0 */6 * * *', async () => {
     try {
-      const info = db.prepare(`DELETE FROM tracking_cache WHERE fetched_at < datetime('now', '-6 hours')`).run();
+      const info = await db.run(`DELETE FROM tracking_cache WHERE fetched_at < datetime('now', '-6 hours')`);
       if (info.changes) logger.info(`[Worker:CacheCleanup] cleared ${info.changes} stale cache row(s)`);
     } catch (err) {
       logger.error('[Worker:CacheCleanup] failed', { error: err.message });

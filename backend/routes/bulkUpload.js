@@ -66,27 +66,27 @@ router.post('/', requirePermission('bulk_upload.create'), upload.single('file'),
 });
 
 // GET /api/bulk-upload — list jobs (own jobs for employees, all for admins)
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const scoped = req.user.role !== 'admin';
-  const rows = db.prepare(`
+  const rows = await db.all(`
     SELECT * FROM bulk_upload_jobs ${scoped ? 'WHERE uploaded_by = ?' : ''} ORDER BY created_at DESC LIMIT 100
-  `).all(...(scoped ? [req.user.id] : []));
+  `, scoped ? [req.user.id] : []);
   res.json({ success: true, data: rows });
 });
 
 // GET /api/bulk-upload/:jobId — job detail + records for review
-router.get('/:jobId', (req, res) => {
-  const job = db.prepare('SELECT * FROM bulk_upload_jobs WHERE id = ?').get(req.params.jobId);
+router.get('/:jobId', async (req, res) => {
+  const job = await db.get('SELECT * FROM bulk_upload_jobs WHERE id = ?', [req.params.jobId]);
   if (!job) return res.status(404).json({ success: false, error: 'Job not found' });
   if (req.user.role !== 'admin' && job.uploaded_by !== req.user.id) {
     return res.status(403).json({ success: false, error: 'You can only view your own bulk upload jobs' });
   }
-  res.json({ success: true, ...bulkUploadService.getJobSummary(job.id) });
+  res.json({ success: true, ...(await bulkUploadService.getJobSummary(job.id)) });
 });
 
 // POST /api/bulk-upload/:jobId/import — confirm import of validated rows into shipments
 router.post('/:jobId/import', requirePermission('bulk_upload.edit_own'), async (req, res) => {
-  const job = db.prepare('SELECT * FROM bulk_upload_jobs WHERE id = ?').get(req.params.jobId);
+  const job = await db.get('SELECT * FROM bulk_upload_jobs WHERE id = ?', [req.params.jobId]);
   if (!job) return res.status(404).json({ success: false, error: 'Job not found' });
   if (req.user.role !== 'admin' && job.uploaded_by !== req.user.id) {
     return res.status(403).json({ success: false, error: 'You can only import your own bulk upload jobs' });
@@ -103,12 +103,12 @@ router.post('/:jobId/import', requirePermission('bulk_upload.edit_own'), async (
 // now a duplicate, returns the (updated) errors instead so the admin can
 // try again rather than silently failing.
 router.post('/:jobId/records/:recordId/complete', requirePermission('bulk_upload.edit_own'), async (req, res) => {
-  const job = db.prepare('SELECT * FROM bulk_upload_jobs WHERE id = ?').get(req.params.jobId);
+  const job = await db.get('SELECT * FROM bulk_upload_jobs WHERE id = ?', [req.params.jobId]);
   if (!job) return res.status(404).json({ success: false, error: 'Job not found' });
   if (req.user.role !== 'admin' && job.uploaded_by !== req.user.id) {
     return res.status(403).json({ success: false, error: 'You can only complete rows from your own bulk upload jobs' });
   }
-  const record = db.prepare('SELECT * FROM bulk_upload_records WHERE id = ? AND job_id = ?').get(req.params.recordId, req.params.jobId);
+  const record = await db.get('SELECT * FROM bulk_upload_records WHERE id = ? AND job_id = ?', [req.params.recordId, req.params.jobId]);
   if (!record) return res.status(404).json({ success: false, error: 'Row not found in this job' });
   if (record.validation_status === 'Imported') {
     return res.status(400).json({ success: false, error: 'This row was already imported' });
@@ -118,20 +118,20 @@ router.post('/:jobId/records/:recordId/complete', requirePermission('bulk_upload
   const merged = { ...JSON.parse(record.raw_data || '{}'), ...(req.body || {}) };
 
   const check = validateShipmentRecord(merged);
-  const duplicate = check.valid && isDuplicateAWB(merged.carrier_tracking_number);
+  const duplicate = check.valid && (await isDuplicateAWB(merged.carrier_tracking_number));
   const errors = duplicate ? [...check.errors, 'Duplicate Shipment — Tracking Number already exists'] : check.errors;
 
   if (!check.valid || duplicate) {
-    db.prepare('UPDATE bulk_upload_records SET raw_data = ?, validation_errors = ? WHERE id = ?')
-      .run(JSON.stringify(merged), JSON.stringify(errors), record.id);
+    await db.run('UPDATE bulk_upload_records SET raw_data = ?, validation_errors = ? WHERE id = ?',
+      [JSON.stringify(merged), JSON.stringify(errors), record.id]);
     return res.status(400).json({ success: false, error: errors.join('; '), validationErrors: errors });
   }
 
   try {
     const created = await createShipmentFromRecord(merged, req.user.id, { autoTrackingEnabled: true, generateWaybills: true });
-    db.prepare(`
+    await db.run(`
       UPDATE bulk_upload_records SET raw_data = ?, shipment_id = ?, validation_status = 'Imported', validation_errors = NULL WHERE id = ?
-    `).run(JSON.stringify(merged), created.id, record.id);
+    `, [JSON.stringify(merged), created.id, record.id]);
 
     logAudit(req, { action: 'EXCEL_IMPORT_ROW_COMPLETED', entity: 'shipments', entityId: created.id,
       details: `Completed pending row #${record.row_number} of job #${job.id} — ${created.ge_tracking_number}`, actor: req.user });

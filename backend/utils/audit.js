@@ -6,15 +6,17 @@
 const db = require('./db');
 const logger = require('./logger');
 
-const STMT = db.prepare(`
+const SQL = `
   INSERT INTO audit_log
     (user_id, username, role, action, entity, entity_id, ip_address, device, old_value, new_value, status, details)
   VALUES
-    (@user_id, @username, @role, @action, @entity, @entity_id, @ip_address, @device, @old_value, @new_value, @status, @details)
-`);
+    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`;
 
 /**
- * Log an audit event.
+ * Log an audit event. Fire-and-forget by design (never awaited by callers) —
+ * failures are caught and logged here so a broken audit write never breaks
+ * the request that triggered it.
  * @param {object} req - Express request (used for IP/device/user when available)
  * @param {object} opts
  * @param {string} opts.action       e.g. 'LOGIN_SUCCESS','LOGIN_FAILURE','PASSWORD_RESET','USERNAME_CHANGE',
@@ -28,26 +30,26 @@ const STMT = db.prepare(`
  * @param {string} [opts.details]    free-text note
  * @param {object} [opts.actor]      override actor when req.user isn't set (e.g. failed login before auth)
  */
-function logAudit(req, opts) {
+async function logAudit(req, opts) {
   try {
     const user = opts.actor || req?.user || {};
     const ip = req?.ip || req?.headers?.['x-forwarded-for'] || req?.connection?.remoteAddress || null;
     const device = req?.headers?.['user-agent'] || null;
 
-    STMT.run({
-      user_id:    user.id ?? null,
-      username:   user.username ?? opts.actorUsername ?? null,
-      role:       user.role ?? null,
-      action:     opts.action,
-      entity:     opts.entity ?? null,
-      entity_id:  opts.entityId != null ? String(opts.entityId) : null,
-      ip_address: ip,
-      device:     device,
-      old_value:  opts.oldValue != null ? JSON.stringify(opts.oldValue) : null,
-      new_value:  opts.newValue != null ? JSON.stringify(opts.newValue) : null,
-      status:     opts.status || 'success',
-      details:    opts.details ?? null,
-    });
+    await db.run(SQL, [
+      user.id ?? null,
+      user.username ?? opts.actorUsername ?? null,
+      user.role ?? null,
+      opts.action,
+      opts.entity ?? null,
+      opts.entityId != null ? String(opts.entityId) : null,
+      ip,
+      device,
+      opts.oldValue != null ? JSON.stringify(opts.oldValue) : null,
+      opts.newValue != null ? JSON.stringify(opts.newValue) : null,
+      opts.status || 'success',
+      opts.details ?? null,
+    ]);
   } catch (err) {
     // Auditing must never break the request flow.
     logger.error('Audit log write failed', { error: err.message, action: opts?.action });

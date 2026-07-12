@@ -65,17 +65,18 @@ function validateWeight(weight) {
 }
 
 /** Duplicate detection — checks if AWB/tracking number already exists in shipments. */
-function isDuplicateAWB(awb) {
+async function isDuplicateAWB(awb) {
   if (awb == null || awb === '') return false;
   const clean = String(awb).trim();
-  const row = db.prepare(
-    'SELECT id FROM shipments WHERE carrier_tracking_number = ? OR awb_number = ?'
-  ).get(clean, clean);
+  const row = await db.get(
+    'SELECT id FROM shipments WHERE carrier_tracking_number = ? OR awb_number = ?',
+    [clean, clean]
+  );
   return !!row;
 }
 
 /** Runs the full validation pipeline used by the Bulk Upload module. Returns { valid, errors[], warnings[], detectedCarrier }. */
-function runValidationPipeline(record) {
+async function runValidationPipeline(record) {
   const errors = [];
   const warnings = [];
 
@@ -86,7 +87,7 @@ function runValidationPipeline(record) {
   if (!awbCheck.valid) errors.push(awbCheck.reason);
   if (awbCheck.warning) warnings.push(awbCheck.warning);
 
-  if (isDuplicateAWB(awb)) errors.push('Duplicate AWB / tracking number already exists in system');
+  if (await isDuplicateAWB(awb)) errors.push('Duplicate AWB / tracking number already exists in system');
 
   if (record.to_country) {
     const c = validateCountry(record.to_country);

@@ -10,6 +10,19 @@ const fs         = require('fs');
 const rateLimit  = require('express-rate-limit');
 const logger     = require('./utils/logger');
 
+// ── Safety net: an uncaught error thrown inside an `async (req, res) => {}`
+// route handler becomes a rejected promise Express 4 never sees (it isn't
+// passed to next()), which by default crashes the whole Node process. Every
+// route in this app wraps its own DB calls in a try/catch where a failure
+// should produce a clean error response, but this is a last-resort backstop
+// so a genuinely unexpected error takes down one request, not the server. ───
+process.on('unhandledRejection', (reason) => {
+  logger.error('[UnhandledRejection]', { error: reason?.message || String(reason), stack: reason?.stack });
+});
+process.on('uncaughtException', (err) => {
+  logger.error('[UncaughtException]', { error: err.message, stack: err.stack });
+});
+
 // ── Ensure DB & uploads dirs exist, run init ──────────────────────────────────
 const DB_DIR = path.join(__dirname, 'db');
 if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });

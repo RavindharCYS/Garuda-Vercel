@@ -70,21 +70,21 @@ router.use(requireAuth);
 /** True if `userId` belongs to a user with role 'admin'. Used so employees can
  *  see shipments admins created (bulk/Excel imports, manual entries, etc.) —
  *  not just their own — without opening visibility to other employees' work. */
-function isCreatedByAdmin(createdBy) {
+async function isCreatedByAdmin(createdBy) {
   if (createdBy == null) return false;
-  const creator = db.prepare('SELECT role FROM users WHERE id = ?').get(createdBy);
+  const creator = await db.get('SELECT role FROM users WHERE id = ?', [createdBy]);
   return creator?.role === 'admin';
 }
 
 /** Returns true if the shipment belongs to req.user, was created by an admin, or req.user is admin. */
-function canAccess(req, shipment) {
+async function canAccess(req, shipment) {
   if (req.user.role === 'admin') return true;
   if (shipment.created_by === req.user.id) return true;
   return isCreatedByAdmin(shipment.created_by);
 }
 
 // ── GET /api/shipments ────────────────────────────────────────────────────────
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const { q, status, carrier, date_from, date_to, page = 1, limit = 25, sort = 'created_at', order = 'desc' } = req.query;
   const conditions = [], params = [];
 
@@ -111,8 +111,8 @@ router.get('/', (req, res) => {
   const safeSort  = ['created_at', 'ship_date', 'booking_date', 'ge_tracking_number', 'to_name', 'status', 'tracking_status'].includes(sort) ? sort : 'created_at';
   const safeOrder = order === 'asc' ? 'ASC' : 'DESC';
 
-  const total = db.prepare(`SELECT COUNT(*) as c FROM shipments ${where}`).get(...params).c;
-  const rows  = db.prepare(`
+  const totalRow = await db.get(`SELECT COUNT(*) as c FROM shipments ${where}`, params);
+  const rows  = await db.all(`
     SELECT id, ge_tracking_number, carrier, carrier_tracking_number, awb_number, reference_number,
            from_name, from_city, from_country, to_name, to_city, to_country,
            sender_company, receiver_company, receiver_attention,
@@ -124,9 +124,9 @@ router.get('/', (req, res) => {
     FROM shipments ${where}
     ORDER BY ${safeSort} ${safeOrder}
     LIMIT ? OFFSET ?
-  `).all(...params, parseInt(limit), offset);
+  `, [...params, parseInt(limit), offset]);
 
-  res.json({ success: true, total, page: parseInt(page), limit: parseInt(limit), data: rows });
+  res.json({ success: true, total: totalRow.c, page: parseInt(page), limit: parseInt(limit), data: rows });
 });
 
 // NOTE: there is no Manual/Auto toggle, Tracking Timeframe cycle, or
@@ -137,11 +137,11 @@ router.get('/', (req, res) => {
 // whether that one-time registration happens at all for a given shipment.
 
 // ── GET /api/shipments/manual-queue — admin view of shipments needing manual tracking ──
-router.get('/manual-queue', requireAdmin, (req, res) => {
-  const rows = db.prepare(`
+router.get('/manual-queue', requireAdmin, async (req, res) => {
+  const rows = await db.all(`
     SELECT id, ge_tracking_number, carrier, carrier_tracking_number, to_name, to_country, status, created_at
     FROM shipments WHERE needs_manual_tracking = 1 ORDER BY created_at DESC
-  `).all();
+  `);
   res.json({ success: true, data: rows });
 });
 
@@ -152,13 +152,13 @@ router.get('/manual-queue', requireAdmin, (req, res) => {
 // yet (e.g. local development, or before the webhook URL has been pasted
 // into TrackingMore/17Track's dashboard — see the Settings page).
 router.post('/tracking/sync-pending', requireAdmin, async (req, res) => {
-  const stale = db.prepare(`
+  const stale = await db.all(`
     SELECT ge_tracking_number FROM shipments
     WHERE tracking_registered = 1
       AND carrier_tracking_number IS NOT NULL
       AND (tracking_status IS NULL OR tracking_status != 'Delivered')
     LIMIT 200
-  `).all();
+  `);
 
   let updated = 0, failed = 0;
   for (const s of stale) {
@@ -178,7 +178,7 @@ router.post('/tracking/sync-pending', requireAdmin, async (req, res) => {
 // tracker, GET /:id here) serves whatever is already stored in the DB.
 router.post('/:id/tracking/refresh', requireAdmin, async (req, res) => {
   if (isNaN(parseInt(req.params.id))) return res.status(400).json({ success: false, error: 'Invalid ID' });
-  const shipment = db.prepare('SELECT * FROM shipments WHERE id = ?').get(req.params.id);
+  const shipment = await db.get('SELECT * FROM shipments WHERE id = ?', [req.params.id]);
   if (!shipment) return res.status(404).json({ success: false, error: 'Not found' });
   if (!shipment.ge_tracking_number) return res.status(400).json({ success: false, error: 'Shipment has no GE tracking number yet' });
 
@@ -188,11 +188,11 @@ router.post('/:id/tracking/refresh', requireAdmin, async (req, res) => {
       details: `Manual refresh — ${result.success ? `synced via ${result.provider}` : result.error}`, actor: req.user,
       status: result.success ? 'success' : 'failure' });
 
-    const updated = db.prepare('SELECT * FROM shipments WHERE id = ?').get(shipment.id);
-    const events = db.prepare(`
+    const updated = await db.get('SELECT * FROM shipments WHERE id = ?', [shipment.id]);
+    const events = await db.all(`
       SELECT event_timestamp, status, location, provider FROM tracking_events
       WHERE shipment_id = ? ORDER BY event_timestamp DESC LIMIT 50
-    `).all(shipment.id);
+    `, [shipment.id]);
 
     res.json({ success: result.success, error: result.success ? undefined : result.error, data: updated, trackingHistory: events });
   } catch (err) {
@@ -202,18 +202,18 @@ router.post('/:id/tracking/refresh', requireAdmin, async (req, res) => {
 });
 
 // ── GET /api/shipments/:id ────────────────────────────────────────────────────
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   if (isNaN(parseInt(req.params.id))) return res.status(400).json({ success: false, error: 'Invalid ID' });
-  const row = db.prepare('SELECT * FROM shipments WHERE id = ?').get(req.params.id);
+  const row = await db.get('SELECT * FROM shipments WHERE id = ?', [req.params.id]);
   if (!row) return res.status(404).json({ success: false, error: 'Not found' });
-  if (!canAccess(req, row)) return res.status(403).json({ success: false, error: 'You can only view your own shipments' });
+  if (!(await canAccess(req, row))) return res.status(403).json({ success: false, error: 'You can only view your own shipments' });
 
   if (req.user.role !== 'admin') { delete row.carrier_tracking_number; delete row.carrier; delete row.ocr_raw_text; }
 
-  const events = db.prepare(`
+  const events = await db.all(`
     SELECT event_timestamp, status, location, provider FROM tracking_events
     WHERE shipment_id = ? ORDER BY event_timestamp DESC LIMIT 50
-  `).all(row.id);
+  `, [row.id]);
 
   res.json({ success: true, data: row, trackingHistory: events });
 });
@@ -277,11 +277,11 @@ router.post('/', requirePermission('shipments.create'), async (req, res) => {
   // either field.
   const dupTrackingNumber = d.carrier_tracking_number || d.awb_number || null;
   if (dupTrackingNumber) {
-    const dup = db.prepare(`
+    const dup = await db.get(`
       SELECT id, ge_tracking_number, carrier FROM shipments
       WHERE (carrier_tracking_number = ? OR awb_number = ?)
       LIMIT 1
-    `).get(dupTrackingNumber, dupTrackingNumber);
+    `, [dupTrackingNumber, dupTrackingNumber]);
     if (dup) {
       return res.status(409).json({
         success: false,
@@ -291,7 +291,7 @@ router.post('/', requirePermission('shipments.create'), async (req, res) => {
     }
   }
 
-  const geNum = generateGENumber(db);
+  const geNum = await generateGENumber(db);
   // package_length/width/height (application-layer field names from
   // services/waybillFieldSchema.js) map onto the existing length/width/height
   // columns — see the comment in utils/initDb.js for why there's no separate set.
@@ -309,7 +309,7 @@ router.post('/', requirePermission('shipments.create'), async (req, res) => {
   // schedule/interval to configure any more.
   const autoTrackingEnabled = d.auto_tracking_enabled === undefined ? 1 : (d.auto_tracking_enabled ? 1 : 0);
 
-  const info = db.prepare(`
+  const info = await db.run(`
     INSERT INTO shipments (
       ge_tracking_number,carrier,carrier_tracking_number,awb_number,reference_number,
       from_name,from_address,from_city,from_state,from_country,from_postal,from_contact,
@@ -331,8 +331,8 @@ router.post('/', requirePermission('shipments.create'), async (req, res) => {
       ?,?,?,  ?,?,?,?,?,?,  ?,?,?,
       ?,
       ?,?,datetime('now')
-    )
-  `).run(
+    ) RETURNING id
+  `, [
     geNum, carrier, d.carrier_tracking_number || null, d.awb_number || d.carrier_tracking_number || null, d.reference_number || null,
     d.from_name || null, d.from_address || null, d.from_city || null, d.from_state || null, d.from_country || null, d.from_postal || null, d.from_contact || null,
     d.to_name || null, d.to_address || null, d.to_city || null, d.to_state || null, d.to_country || null, d.to_postal || null, d.to_contact || null,
@@ -345,34 +345,34 @@ router.post('/', requirePermission('shipments.create'), async (req, res) => {
     d.original_waybill_file || null, d.ocr_raw_text || null, d.ocr_confidence || null,
     autoTrackingEnabled,
     d.status || 'Processing', req.user.id
-  );
+  ]);
 
   if (autoTrackingEnabled && (d.carrier_tracking_number || d.awb_number)) {
     registerForTracking(info.lastInsertRowid).catch(err => console.warn('[Shipments] tracking registration failed:', err.message));
   }
 
   logAudit(req, { action: 'SHIPMENT_CREATE', entity: 'shipments', entityId: info.lastInsertRowid, newValue: { ge: geNum }, actor: req.user });
-  const created = db.prepare('SELECT * FROM shipments WHERE id = ?').get(info.lastInsertRowid);
+  const created = await db.get('SELECT * FROM shipments WHERE id = ?', [info.lastInsertRowid]);
   res.status(201).json({ success: true, data: created });
 });
 
 // ── PUT /api/shipments/:id ────────────────────────────────────────────────────
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   if (isNaN(parseInt(req.params.id))) return res.status(400).json({ success: false, error: 'Invalid ID' });
   const d = req.body, id = req.params.id;
-  const existing = db.prepare('SELECT * FROM shipments WHERE id = ?').get(id);
+  const existing = await db.get('SELECT * FROM shipments WHERE id = ?', [id]);
   if (!existing) return res.status(404).json({ success: false, error: 'Not found' });
-  if (!canAccess(req, existing)) return res.status(403).json({ success: false, error: 'You can only edit your own shipments' });
+  if (!(await canAccess(req, existing))) return res.status(403).json({ success: false, error: 'You can only edit your own shipments' });
 
   // Same duplicate guard as creation, but excluding this record itself so a
   // no-op save (or editing unrelated fields) doesn't trip on its own number.
   const dupTrackingNumber = d.carrier_tracking_number || d.awb_number || null;
   if (dupTrackingNumber) {
-    const dup = db.prepare(`
+    const dup = await db.get(`
       SELECT id, ge_tracking_number, carrier FROM shipments
       WHERE (carrier_tracking_number = ? OR awb_number = ?) AND id != ?
       LIMIT 1
-    `).get(dupTrackingNumber, dupTrackingNumber, id);
+    `, [dupTrackingNumber, dupTrackingNumber, id]);
     if (dup) {
       return res.status(409).json({
         success: false,
@@ -394,7 +394,7 @@ router.put('/:id', (req, res) => {
   // interval/schedule to set any more — see services/trackingService.js.
   const autoTrackingEnabled = d.auto_tracking_enabled === undefined ? null : (d.auto_tracking_enabled ? 1 : 0);
 
-  db.prepare(`
+  await db.run(`
     UPDATE shipments SET
       carrier=COALESCE(?,carrier), carrier_tracking_number=COALESCE(?,carrier_tracking_number),
       awb_number=COALESCE(?,awb_number), reference_number=COALESCE(?,reference_number),
@@ -421,7 +421,7 @@ router.put('/:id', (req, res) => {
       auto_tracking_enabled=COALESCE(?,auto_tracking_enabled),
       updated_by=?, updated_at=datetime('now')
     WHERE id=?
-  `).run(
+  `, [
     d.carrier ?? null, d.carrier_tracking_number ?? null, d.awb_number ?? null, d.reference_number ?? null,
     d.from_name ?? null, d.from_address ?? null, d.from_city ?? null, d.from_state ?? null,
     d.from_country ?? null, d.from_postal ?? null, d.from_contact ?? null,
@@ -442,33 +442,33 @@ router.put('/:id', (req, res) => {
     d.declared_value ?? null, d.currency ?? null, d.invoice_number ?? null, d.status ?? null,
     autoTrackingEnabled,
     req.user.id, id
-  );
+  ]);
 
   // If a tracking number was just added/changed and this shipment isn't
   // registered with a provider yet, register it now — still a one-time
   // action, not a recurring poll.
-  const updated = db.prepare('SELECT * FROM shipments WHERE id = ?').get(id);
+  const updated = await db.get('SELECT * FROM shipments WHERE id = ?', [id]);
   if (updated.auto_tracking_enabled && !updated.tracking_registered && (updated.carrier_tracking_number || updated.awb_number)) {
     registerForTracking(updated.id).catch(err => console.warn('[Shipments] tracking registration failed:', err.message));
   }
 
   logAudit(req, { action: 'SHIPMENT_UPDATE', entity: 'shipments', entityId: id, oldValue: { status: existing.status }, newValue: { status: d.status }, actor: req.user });
-  res.json({ success: true, data: db.prepare('SELECT * FROM shipments WHERE id = ?').get(id) });
+  res.json({ success: true, data: await db.get('SELECT * FROM shipments WHERE id = ?', [id]) });
 });
 
 // ── DELETE /api/shipments/:id ─────────────────────────────────────────────────
 // Admin-only per spec §8 (employees have "No Delete" permission on uploaded data).
-router.delete('/:id', requireAdmin, (req, res) => {
+router.delete('/:id', requireAdmin, async (req, res) => {
   if (isNaN(parseInt(req.params.id))) return res.status(400).json({ success: false, error: 'Invalid ID' });
-  const row = db.prepare('SELECT * FROM shipments WHERE id = ?').get(req.params.id);
+  const row = await db.get('SELECT * FROM shipments WHERE id = ?', [req.params.id]);
   if (!row) return res.status(404).json({ success: false, error: 'Not found' });
   if (row.original_waybill_file) {
     const fp = path.join(UPLOAD_DIR, row.original_waybill_file);
     if (fs.existsSync(fp)) fs.unlinkSync(fp);
   }
-  db.prepare('DELETE FROM tracking_cache WHERE ge_tracking_number = ?').run(row.ge_tracking_number);
-  db.prepare('DELETE FROM tracking_events WHERE shipment_id = ?').run(req.params.id);
-  db.prepare('DELETE FROM shipments WHERE id = ?').run(req.params.id);
+  await db.run('DELETE FROM tracking_cache WHERE ge_tracking_number = ?', [row.ge_tracking_number]);
+  await db.run('DELETE FROM tracking_events WHERE shipment_id = ?', [req.params.id]);
+  await db.run('DELETE FROM shipments WHERE id = ?', [req.params.id]);
   logAudit(req, { action: 'SHIPMENT_DELETE', entity: 'shipments', entityId: req.params.id, details: `GE: ${row.ge_tracking_number}`, actor: req.user });
   res.json({ success: true, message: 'Deleted' });
 });
@@ -487,9 +487,9 @@ router.delete('/:id', requireAdmin, (req, res) => {
 router.post('/:id/reprocess', requirePermission('shipments.create'), async (req, res) => {
   if (isNaN(parseInt(req.params.id))) return res.status(400).json({ success: false, error: 'Invalid ID' });
   const id = req.params.id;
-  const existing = db.prepare('SELECT * FROM shipments WHERE id = ?').get(id);
+  const existing = await db.get('SELECT * FROM shipments WHERE id = ?', [id]);
   if (!existing) return res.status(404).json({ success: false, error: 'Not found' });
-  if (!canAccess(req, existing)) return res.status(403).json({ success: false, error: 'You can only reprocess your own shipments' });
+  if (!(await canAccess(req, existing))) return res.status(403).json({ success: false, error: 'You can only reprocess your own shipments' });
   if (!existing.original_waybill_file) {
     return res.status(400).json({ success: false, error: 'No original file on record for this shipment — it predates file retention or was created manually.' });
   }
@@ -506,7 +506,7 @@ router.post('/:id/reprocess', requirePermission('shipments.create'), async (req,
     const carrierSpecific = fields.carrier_specific == null ? null
       : (typeof fields.carrier_specific === 'string' ? fields.carrier_specific : JSON.stringify(fields.carrier_specific));
 
-    db.prepare(`
+    await db.run(`
       UPDATE shipments SET
         carrier=?, carrier_tracking_number=?, awb_number=?, reference_number=?,
         from_name=?, from_address=?, from_city=?, from_state=?, from_country=?, from_postal=?, from_contact=?,
@@ -519,7 +519,7 @@ router.post('/:id/reprocess', requirePermission('shipments.create'), async (req,
         ocr_raw_text=?, ocr_confidence=?,
         updated_by=?, updated_at=datetime('now')
       WHERE id=?
-    `).run(
+    `, [
       fields.carrier ?? null, fields.carrier_tracking_number ?? null, fields.carrier_tracking_number ?? null, fields.reference_number ?? null,
       fields.from_name ?? null, fields.from_address ?? null, fields.from_city ?? null, fields.from_state ?? null,
       fields.from_country ?? null, fields.from_postal ?? null, fields.from_contact ?? null,
@@ -533,7 +533,7 @@ router.post('/:id/reprocess', requirePermission('shipments.create'), async (req,
       fields.service_type ?? null, fields.declared_value ?? null, fields.currency ?? 'INR', fields.invoice_number ?? null,
       rawText ?? null, confidence ?? null,
       req.user.id, id
-    );
+    ]);
 
     logAudit(req, {
       action: 'SHIPMENT_REPROCESS', entity: 'shipments', entityId: id,
@@ -541,7 +541,7 @@ router.post('/:id/reprocess', requirePermission('shipments.create'), async (req,
       newValue: { carrier_tracking_number: fields.carrier_tracking_number, engine, confidence },
       actor: req.user,
     });
-    res.json({ success: true, data: db.prepare('SELECT * FROM shipments WHERE id = ?').get(id), engine, confidence });
+    res.json({ success: true, data: await db.get('SELECT * FROM shipments WHERE id = ?', [id]), engine, confidence });
   } catch (err) {
     console.error('[Reprocess]', err.message);
     res.status(500).json({ success: false, error: 'Reprocess failed: ' + err.message });
@@ -551,9 +551,9 @@ router.post('/:id/reprocess', requirePermission('shipments.create'), async (req,
 // ── POST /api/shipments/:id/generate-waybill ──────────────────────────────────
 router.post('/:id/generate-waybill', async (req, res) => {
   if (isNaN(parseInt(req.params.id))) return res.status(400).json({ success: false, error: 'Invalid ID' });
-  const shipment = db.prepare('SELECT * FROM shipments WHERE id = ?').get(req.params.id);
+  const shipment = await db.get('SELECT * FROM shipments WHERE id = ?', [req.params.id]);
   if (!shipment) return res.status(404).json({ success: false, error: 'Not found' });
-  if (!canAccess(req, shipment)) return res.status(403).json({ success: false, error: 'You can only generate waybills for your own shipments' });
+  if (!(await canAccess(req, shipment))) return res.status(403).json({ success: false, error: 'You can only generate waybills for your own shipments' });
 
   const WAYBILL_DIR = path.join(UPLOAD_DIR, 'waybills');
   if (!fs.existsSync(WAYBILL_DIR)) fs.mkdirSync(WAYBILL_DIR, { recursive: true });
@@ -561,7 +561,7 @@ router.post('/:id/generate-waybill', async (req, res) => {
 
   try {
     await generateWaybill(shipment, outputPath);
-    db.prepare(`UPDATE shipments SET garuda_waybill_generated=1, updated_at=datetime('now') WHERE id=?`).run(shipment.id);
+    await db.run(`UPDATE shipments SET garuda_waybill_generated=1, updated_at=datetime('now') WHERE id=?`, [shipment.id]);
     logAudit(req, { action: 'GENERATE_WAYBILL', entity: 'shipments', entityId: shipment.id, actor: req.user });
     res.download(outputPath, `GarudaExpress_${shipment.ge_tracking_number}.pdf`);
   } catch (err) {
@@ -629,7 +629,7 @@ router.post('/import-excel', requirePermission('shipments.create'), excelUpload.
 });
 
 // ── GET /api/shipments/export/xlsx ────────────────────────────────────────────
-router.get('/export/xlsx', requireAdmin, (req, res) => {
+router.get('/export/xlsx', requireAdmin, async (req, res) => {
   const XLSX = require('xlsx');
   const { date_from, date_to, status } = req.query;
   const conditions = [], params = [];
@@ -637,7 +637,7 @@ router.get('/export/xlsx', requireAdmin, (req, res) => {
   if (date_to)   { conditions.push('ship_date <= ?'); params.push(date_to); }
   if (status)    { conditions.push('status = ?');     params.push(status); }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const rows  = db.prepare(`SELECT * FROM shipments ${where} ORDER BY created_at DESC`).all(...params);
+  const rows  = await db.all(`SELECT * FROM shipments ${where} ORDER BY created_at DESC`, params);
   const clean = rows.map(({ ocr_raw_text, ...rest }) => rest);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clean), 'Shipments');

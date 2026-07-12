@@ -54,32 +54,32 @@ function mergeValidationWarnings(validation, extraWarnings) {
 }
 
 /** Create a new bulk_upload_jobs row and return its id. */
-function createJob({ uploadedBy, fileName, fileType }) {
-  const info = db.prepare(`
-    INSERT INTO bulk_upload_jobs (uploaded_by, file_name, file_type, status) VALUES (?,?,?, 'Processing')
-  `).run(uploadedBy, fileName, fileType);
+async function createJob({ uploadedBy, fileName, fileType }) {
+  const info = await db.run(`
+    INSERT INTO bulk_upload_jobs (uploaded_by, file_name, file_type, status) VALUES (?,?,?, 'Processing') RETURNING id
+  `, [uploadedBy, fileName, fileType]);
   return info.lastInsertRowid;
 }
 
-function addRecord(jobId, rowNumber, rawData, validation) {
-  const info = db.prepare(`
+async function addRecord(jobId, rowNumber, rawData, validation) {
+  const info = await db.run(`
     INSERT INTO bulk_upload_records (job_id, row_number, raw_data, detected_carrier, validation_status, validation_errors, validation_warnings)
-    VALUES (?,?,?,?,?,?,?)
-  `).run(
+    VALUES (?,?,?,?,?,?,?) RETURNING id
+  `, [
     jobId, rowNumber, JSON.stringify(rawData), validation.detectedCarrier || null,
     validation.valid ? 'Valid' : 'Invalid',
     validation.errors.length ? JSON.stringify(validation.errors) : null,
     validation.warnings.length ? JSON.stringify(validation.warnings) : null
-  );
+  ]);
   return info.lastInsertRowid;
 }
 
-function finalizeJob(jobId) {
-  const total = db.prepare('SELECT COUNT(*) c FROM bulk_upload_records WHERE job_id=?').get(jobId).c;
-  const invalid = db.prepare("SELECT COUNT(*) c FROM bulk_upload_records WHERE job_id=? AND validation_status='Invalid'").get(jobId).c;
-  db.prepare(`
+async function finalizeJob(jobId) {
+  const total = (await db.get('SELECT COUNT(*) c FROM bulk_upload_records WHERE job_id=?', [jobId])).c;
+  const invalid = (await db.get("SELECT COUNT(*) c FROM bulk_upload_records WHERE job_id=? AND validation_status='Invalid'", [jobId])).c;
+  await db.run(`
     UPDATE bulk_upload_jobs SET total_records=?, failed_count=?, success_count=?, status='Validated', completed_at=datetime('now') WHERE id=?
-  `).run(total, invalid, total - invalid, jobId);
+  `, [total, invalid, total - invalid, jobId]);
 }
 
 // ── CSV / Excel parsing ───────────────────────────────────────────────────────
@@ -159,16 +159,17 @@ function extractZip(filePath) {
  * persist to bulk_upload_records for review, return the job summary.
  */
 async function processSpreadsheetUpload({ filePath, fileType, fileName, uploadedBy }) {
-  const jobId = createJob({ uploadedBy, fileName, fileType });
+  const jobId = await createJob({ uploadedBy, fileName, fileType });
   const rows = parseSpreadsheet(filePath, fileType);
 
-  rows.forEach((row, idx) => {
-    let validation = runValidationPipeline(row);
+  for (let idx = 0; idx < rows.length; idx++) {
+    const row = rows[idx];
+    let validation = await runValidationPipeline(row);
     validation = mergeValidationWarnings(validation, checkMandatoryFields(row));
-    addRecord(jobId, idx + 1, row, validation);
-  });
+    await addRecord(jobId, idx + 1, row, validation);
+  }
 
-  finalizeJob(jobId);
+  await finalizeJob(jobId);
   logAudit(null, { action: 'BULK_UPLOAD', entity: 'bulk_upload_jobs', entityId: jobId, actor: { id: uploadedBy },
     details: `${fileName} (${fileType}) — ${rows.length} rows parsed` });
 
@@ -187,7 +188,7 @@ async function processSpreadsheetUpload({ filePath, fileType, fileName, uploaded
  * tier where requests-per-minute/day are tightly limited.
  */
 async function processDocumentBatchUpload({ filePath, fileType, fileName, uploadedBy }) {
-  const jobId = createJob({ uploadedBy, fileName, fileType });
+  const jobId = await createJob({ uploadedBy, fileName, fileType });
   const files = fileType === 'zip' ? extractZip(filePath) : [filePath];
 
   let batchResults;
@@ -202,18 +203,19 @@ async function processDocumentBatchUpload({ filePath, fileType, fileName, upload
     batchResults = files.map(() => ({ error: err.message }));
   }
 
-  files.forEach((f, i) => {
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
     const rowNum = i + 1;
     const res = batchResults[i];
     if (!res || res.error) {
       logger.error('Bulk OCR failed for file', { file: f, error: res?.error || 'Unknown error' });
-      addRecord(jobId, rowNum, { _source_file: path.basename(f), _error: res?.error || 'OCR failed' },
+      await addRecord(jobId, rowNum, { _source_file: path.basename(f), _error: res?.error || 'OCR failed' },
         { valid: false, errors: [`OCR failed: ${res?.error || 'Unknown error'}`], warnings: [] });
     } else {
       const { fields, confidence, engine, field_score, warnings: ocrWarnings, gemini_used } = res;
-      let validation = runValidationPipeline(fields);
+      let validation = await runValidationPipeline(fields);
       validation = mergeValidationWarnings(validation, [...(ocrWarnings || []), ...checkMandatoryFields(fields)]);
-      addRecord(jobId, rowNum, {
+      await addRecord(jobId, rowNum, {
         ...fields,
         _source_file: path.basename(f),
         _ocr_confidence: confidence,
@@ -223,18 +225,18 @@ async function processDocumentBatchUpload({ filePath, fileType, fileName, upload
       }, validation);
     }
     if (fileType === 'zip' && fs.existsSync(f)) fs.unlinkSync(f);
-  });
+  }
 
-  finalizeJob(jobId);
+  await finalizeJob(jobId);
   logAudit(null, { action: 'BULK_UPLOAD', entity: 'bulk_upload_jobs', entityId: jobId, actor: { id: uploadedBy },
     details: `${fileName} (${fileType}) — ${files.length} document(s) OCR'd` });
 
   return getJobSummary(jobId);
 }
 
-function getJobSummary(jobId) {
-  const job = db.prepare('SELECT * FROM bulk_upload_jobs WHERE id = ?').get(jobId);
-  const records = db.prepare('SELECT * FROM bulk_upload_records WHERE job_id = ? ORDER BY row_number').all(jobId);
+async function getJobSummary(jobId) {
+  const job = await db.get('SELECT * FROM bulk_upload_jobs WHERE id = ?', [jobId]);
+  const records = await db.all('SELECT * FROM bulk_upload_records WHERE job_id = ? ORDER BY row_number', [jobId]);
   return {
     job,
     records: records.map(r => ({
@@ -249,10 +251,10 @@ function getJobSummary(jobId) {
 /** Import the *valid* records of a job into the shipments table (admin/employee confirm step). */
 async function importJob(jobId, userId, { skipInvalid = true } = {}) {
   const { registerForTracking } = require('./trackingService'); // required lazily to avoid a require cycle (trackingService doesn't need this module)
-  const records = db.prepare("SELECT * FROM bulk_upload_records WHERE job_id = ? AND validation_status != 'Imported'").all(jobId);
+  const records = await db.all("SELECT * FROM bulk_upload_records WHERE job_id = ? AND validation_status != 'Imported'", [jobId]);
   let imported = 0, skipped = 0;
 
-  const insertShipment = db.prepare(`
+  const INSERT_SHIPMENT_SQL = `
     INSERT INTO shipments (
       ge_tracking_number, carrier, carrier_tracking_number, awb_number,
       from_name, from_country, from_city, to_name, to_country, to_city,
@@ -262,8 +264,8 @@ async function importJob(jobId, userId, { skipInvalid = true } = {}) {
       length, width, height, customs_value, carriage_value,
       billing_type, account_number, carrier_specific, auto_tracking_enabled,
       status, created_by
-    ) VALUES (?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?, ?,?,?,?, ?,?,?,?,?, ?,?,?,?, 'Processing', ?)
-  `);
+    ) VALUES (?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?, ?,?,?,?, ?,?,?,?,?, ?,?,?,?, 'Processing', ?) RETURNING id
+  `;
 
   for (const rec of records) {
     if (skipInvalid && rec.validation_status === 'Invalid') { skipped++; continue; }
@@ -279,21 +281,21 @@ async function importJob(jobId, userId, { skipInvalid = true } = {}) {
     // would have passed validation since neither was in `shipments` yet. It
     // also runs unconditionally here even if `skipInvalid` is false, so a
     // forced/override import can't push a duplicate through either.
-    if (trackingNum && isDuplicateAWB(trackingNum)) {
+    if (trackingNum && (await isDuplicateAWB(trackingNum))) {
       logger.warn('Bulk import skipped duplicate tracking number', { recordId: rec.id, trackingNum });
-      db.prepare("UPDATE bulk_upload_records SET validation_status='Invalid', validation_errors=? WHERE id=?")
-        .run(JSON.stringify(['Duplicate AWB / tracking number already exists in system']), rec.id);
+      await db.run("UPDATE bulk_upload_records SET validation_status='Invalid', validation_errors=? WHERE id=?",
+        [JSON.stringify(['Duplicate AWB / tracking number already exists in system']), rec.id]);
       skipped++;
       continue;
     }
 
-    const ge = generateGENumber(db);
+    const ge = await generateGENumber(db);
     // carrier_specific may already be a JSON string (from Gemini/OCR) or a
     // raw object (from a hand-built spreadsheet row) — always store as text.
     const carrierSpecific = d.carrier_specific == null ? null
       : (typeof d.carrier_specific === 'string' ? d.carrier_specific : JSON.stringify(d.carrier_specific));
     try {
-      const info = insertShipment.run(
+      const info = await db.run(INSERT_SHIPMENT_SQL, [
         ge, d.carrier || rec.detected_carrier || null, trackingNum, trackingNum,
         d.from_name || null, d.from_country || null, d.from_city || null,
         d.to_name || null, d.to_country || null, d.to_city || null,
@@ -305,8 +307,8 @@ async function importJob(jobId, userId, { skipInvalid = true } = {}) {
         d.customs_value || null, d.carriage_value || null,
         d.billing_type || null, d.account_number || null, carrierSpecific, 1, // auto_tracking_enabled — was previously never set at all, silently defaulting to the column's SQL default of 0 and permanently excluding these shipments from tracking
         userId
-      );
-      db.prepare("UPDATE bulk_upload_records SET validation_status='Imported', shipment_id=? WHERE id=?").run(info.lastInsertRowid, rec.id);
+      ]);
+      await db.run("UPDATE bulk_upload_records SET validation_status='Imported', shipment_id=? WHERE id=?", [info.lastInsertRowid, rec.id]);
       imported++;
 
       if (trackingNum) {
@@ -319,7 +321,7 @@ async function importJob(jobId, userId, { skipInvalid = true } = {}) {
     }
   }
 
-  db.prepare("UPDATE bulk_upload_jobs SET status='Imported', success_count=?, failed_count=? WHERE id=?").run(imported, skipped, jobId);
+  await db.run("UPDATE bulk_upload_jobs SET status='Imported', success_count=?, failed_count=? WHERE id=?", [imported, skipped, jobId]);
   logAudit(null, { action: 'BULK_UPLOAD', entity: 'bulk_upload_jobs', entityId: jobId, actor: { id: userId },
     details: `Imported ${imported}, skipped ${skipped}` });
 

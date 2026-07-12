@@ -27,15 +27,15 @@ function signAccessToken(user) {
   return jwt.sign({ id: user.id, username: user.username, role: user.role, name: user.name, type: 'access' }, SECRET, { expiresIn: ACCESS_EXPIRES_IN });
 }
 
-function issueRefreshToken(user, req) {
+async function issueRefreshToken(user, req) {
   const raw = crypto.randomBytes(40).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(raw).digest('hex');
   const expiresAt = new Date(Date.now() + REFRESH_EXPIRES_MS).toISOString();
 
-  db.prepare(`
+  await db.run(`
     INSERT INTO login_sessions (user_id, refresh_token_hash, ip_address, device, expires_at)
     VALUES (?,?,?,?,?)
-  `).run(user.id, tokenHash, req.ip, req.headers['user-agent'] || null, expiresAt);
+  `, [user.id, tokenHash, req.ip, req.headers['user-agent'] || null, expiresAt]);
 
   // Embed the raw value in a signed JWT so the client only ever sees an opaque token,
   // while the server can still validate against the hashed copy in login_sessions.
@@ -49,7 +49,7 @@ router.post('/login', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Username and password required' });
   }
 
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username.trim());
+  const user = await db.get('SELECT * FROM users WHERE username = ?', [username.trim()]);
 
   if (!user) {
     logAudit(req, { action: 'LOGIN_FAILURE', entity: 'users', status: 'failure', details: `Unknown username: ${username}`, actor: { username } });
@@ -72,10 +72,10 @@ router.post('/login', async (req, res) => {
   if (!valid) {
     const attempts = (user.failed_login_attempts || 0) + 1;
     const willLock = attempts >= MAX_FAILED_ATTEMPTS;
-    db.prepare(`
+    await db.run(`
       UPDATE users SET failed_login_attempts = ?, status = ?, locked_until = ?
       WHERE id = ?
-    `).run(attempts, willLock ? 'Locked' : user.status, willLock ? new Date(Date.now() + LOCKOUT_MINUTES * 60000).toISOString() : null, user.id);
+    `, [attempts, willLock ? 'Locked' : user.status, willLock ? new Date(Date.now() + LOCKOUT_MINUTES * 60000).toISOString() : null, user.id]);
 
     logAudit(req, { action: 'LOGIN_FAILURE', entity: 'users', entityId: user.id, status: 'failure',
       details: willLock ? `Account locked after ${attempts} failed attempts` : `Failed attempt ${attempts}/${MAX_FAILED_ATTEMPTS}`, actor: user });
@@ -88,18 +88,23 @@ router.post('/login', async (req, res) => {
   const updates = { failed_login_attempts: 0, locked_until: null, last_login_at: new Date().toISOString(), last_login_ip: req.ip };
   if (needsRehash) updates.password = await hashPassword(password);
 
-  db.prepare(`
-    UPDATE users SET failed_login_attempts=@failed_login_attempts, locked_until=@locked_until,
-      last_login_at=@last_login_at, last_login_ip=@last_login_ip
-      ${needsRehash ? ', password=@password' : ''}
-    WHERE id = @id
-  `).run({ ...updates, id: user.id });
+  if (needsRehash) {
+    await db.run(`
+      UPDATE users SET failed_login_attempts=?, locked_until=?, last_login_at=?, last_login_ip=?, password=?
+      WHERE id = ?
+    `, [updates.failed_login_attempts, updates.locked_until, updates.last_login_at, updates.last_login_ip, updates.password, user.id]);
+  } else {
+    await db.run(`
+      UPDATE users SET failed_login_attempts=?, locked_until=?, last_login_at=?, last_login_ip=?
+      WHERE id = ?
+    `, [updates.failed_login_attempts, updates.locked_until, updates.last_login_at, updates.last_login_ip, user.id]);
+  }
 
   // ── Password expiry check ──────────────────────────────────────────────
   const expired = isPasswordExpired(user.password_changed_at);
 
   const accessToken  = signAccessToken(user);
-  const refreshToken = issueRefreshToken(user, req);
+  const refreshToken = await issueRefreshToken(user, req);
 
   logAudit(req, { action: 'LOGIN_SUCCESS', entity: 'users', entityId: user.id, status: 'success', actor: user });
 
@@ -114,7 +119,7 @@ router.post('/login', async (req, res) => {
 });
 
 // POST /api/auth/refresh — rotate refresh token, issue a new access token
-router.post('/refresh', (req, res) => {
+router.post('/refresh', async (req, res) => {
   const { refreshToken } = req.body;
   if (!refreshToken) return res.status(400).json({ success: false, error: 'refreshToken required' });
 
@@ -123,31 +128,31 @@ router.post('/refresh', (req, res) => {
   catch (_) { return res.status(401).json({ success: false, error: 'Invalid or expired refresh token' }); }
 
   const tokenHash = crypto.createHash('sha256').update(payload.raw).digest('hex');
-  const session = db.prepare('SELECT * FROM login_sessions WHERE user_id = ? AND refresh_token_hash = ? AND revoked = 0').get(payload.id, tokenHash);
+  const session = await db.get('SELECT * FROM login_sessions WHERE user_id = ? AND refresh_token_hash = ? AND revoked = 0', [payload.id, tokenHash]);
   if (!session || new Date(session.expires_at) < new Date()) {
     return res.status(401).json({ success: false, error: 'Session expired — please log in again' });
   }
 
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(payload.id);
+  const user = await db.get('SELECT * FROM users WHERE id = ?', [payload.id]);
   if (!user || !user.is_active || user.status !== 'Active') {
     return res.status(401).json({ success: false, error: 'Account is not active' });
   }
 
   // Rotate: revoke old session, issue a new refresh + access token pair
-  db.prepare('UPDATE login_sessions SET revoked = 1, last_used_at = datetime(\'now\') WHERE id = ?').run(session.id);
+  await db.run("UPDATE login_sessions SET revoked = 1, last_used_at = datetime('now') WHERE id = ?", [session.id]);
   const newAccessToken  = signAccessToken(user);
-  const newRefreshToken = issueRefreshToken(user, req);
+  const newRefreshToken = await issueRefreshToken(user, req);
 
   res.json({ success: true, token: newAccessToken, refreshToken: newRefreshToken });
 });
 
 // GET /api/auth/me
-router.get('/me', requireAuth, (req, res) => {
-  const user = db.prepare(`
+router.get('/me', requireAuth, async (req, res) => {
+  const user = await db.get(`
     SELECT id, username, role, name, employee_id, email, phone, branch, status,
            must_change_password, mfa_enabled, last_login_at, created_at
     FROM users WHERE id = ?
-  `).get(req.user.id);
+  `, [req.user.id]);
   res.json({ success: true, user });
 });
 
@@ -158,7 +163,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
     return res.status(400).json({ success: false, error: 'currentPassword and newPassword required' });
   }
 
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  const user = await db.get('SELECT * FROM users WHERE id = ?', [req.user.id]);
   const { valid } = await verifyPassword(user.password, currentPassword);
   if (!valid) return res.status(401).json({ success: false, error: 'Current password is incorrect' });
 
@@ -166,22 +171,22 @@ router.post('/change-password', requireAuth, async (req, res) => {
   if (!policy.ok) return res.status(400).json({ success: false, error: policy.errors.join('; ') });
 
   const hashed = await hashPassword(newPassword);
-  db.prepare(`
+  await db.run(`
     UPDATE users SET password = ?, must_change_password = 0, password_changed_at = datetime('now') WHERE id = ?
-  `).run(hashed, user.id);
+  `, [hashed, user.id]);
 
   logAudit(req, { action: 'PASSWORD_CHANGE', entity: 'users', entityId: user.id, status: 'success', actor: req.user });
   res.json({ success: true, message: 'Password updated successfully' });
 });
 
 // POST /api/auth/logout — revoke the current refresh session if provided
-router.post('/logout', requireAuth, (req, res) => {
+router.post('/logout', requireAuth, async (req, res) => {
   const { refreshToken } = req.body || {};
   if (refreshToken) {
     try {
       const payload = jwt.verify(refreshToken, REFRESH_SECRET);
       const tokenHash = crypto.createHash('sha256').update(payload.raw).digest('hex');
-      db.prepare('UPDATE login_sessions SET revoked = 1 WHERE user_id = ? AND refresh_token_hash = ?').run(payload.id, tokenHash);
+      await db.run('UPDATE login_sessions SET revoked = 1 WHERE user_id = ? AND refresh_token_hash = ?', [payload.id, tokenHash]);
     } catch (_) { /* ignore invalid token on logout */ }
   }
   logAudit(req, { action: 'LOGOUT', entity: 'users', entityId: req.user.id, status: 'success', actor: req.user });

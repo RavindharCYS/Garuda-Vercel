@@ -48,13 +48,19 @@ app.use(helmet({
 }));
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
+// Origins are normalized (trailing slash + case) before comparing, so a stray
+// "https://www.garudaexpressint.com/" (trailing slash) in FRONTEND_URL can't
+// silently break this the way an exact-string match would.
+function normalizeOrigin(o) {
+  return (o || '').trim().toLowerCase().replace(/\/+$/, '');
+}
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   'https://www.garudaexpressint.com',
   'https://garudaexpressint.com',
   'http://localhost:3000',
   'http://localhost:5173',
-].filter(Boolean); // drop undefined/empty entries (e.g. if FRONTEND_URL isn't set)
+].filter(Boolean).map(normalizeOrigin); // drop undefined/empty entries (e.g. if FRONTEND_URL isn't set)
 // Any localhost/127.0.0.1 port is allowed in development, since Vite may pick
 // a different port (5174, 5175...) if 5173 is already in use, and browsers
 // treat localhost and 127.0.0.1 as different origins for CORS purposes.
@@ -62,11 +68,15 @@ const localDevOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    const normalized = normalizeOrigin(origin);
+    if (!origin || allowedOrigins.includes(normalized)) return callback(null, true);
     if (process.env.NODE_ENV !== 'production' && localDevOriginPattern.test(origin)) {
       return callback(null, true);
     }
-    logger.warn(`CORS blocked origin: ${origin}`);
+    // Logged at `warn` (not just to the browser console) so this shows up in
+    // `railway logs` — if you see this for an origin you expect to work,
+    // FRONTEND_URL doesn't match what's actually deployed on Vercel.
+    logger.warn(`CORS blocked origin: "${origin}" — allowed: [${allowedOrigins.join(', ')}]`);
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
@@ -102,6 +112,19 @@ app.use('/api/auth/login', rateLimit({
 app.use((req, _, next) => {
   logger.http(`${req.method} ${req.path}`, { ip: req.ip });
   next();
+});
+
+// ── Health check ───────────────────────────────────────────────────────────────
+// Deliberately NOT behind auth or the origin whitelist (cors() above already
+// ran, but this responds fine even to curl with no Origin header at all) —
+// use this to check "is the server even reachable" independent of CORS/DNS:
+//   curl -i https://api.garudaexpressint.com/api/health
+// A connection failure (curl: (6)/(7)/timeout) here means the problem is
+// DNS/TLS/deployment, not CORS — the browser's CORS error message is
+// misleading in that case, since a totally unreachable server also shows up
+// in dev tools as a blocked-by-CORS-looking failure.
+app.get('/api/health', (_, res) => {
+  res.json({ success: true, status: 'ok', env: process.env.NODE_ENV || 'development', time: new Date().toISOString() });
 });
 
 // ── API Routes ────────────────────────────────────────────────────────────────

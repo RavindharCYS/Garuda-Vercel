@@ -13,8 +13,9 @@ aptPkgs = [
 [phases.install]
 cmds = [
   "npm ci || npm install",
-  "pip install -r requirements.txt"
+  "python3 -m venv .venv",
+  ". .venv/bin/activate && pip install -r requirements.txt"
 ]
 
 [start]
-cmd = "node server.js"
+cmd = ". .venv/bin/activate && node server.js"

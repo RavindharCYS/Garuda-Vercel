@@ -19,8 +19,7 @@ aptPkgs = ["poppler-utils", "tesseract-ocr"]
 [phases.install]
 cmds = [
   "npm ci || npm install",
-  "python3 -m ensurepip --upgrade",
-  "python3 -m pip install --break-system-packages -r requirements.txt"
+  "python3 -m pip install --break-system-packages --user -r requirements.txt"
 ]
 
 [start]

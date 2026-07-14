@@ -1,0 +1,27 @@
+# nixpacks.toml — Railway build configuration
+#
+# This backend is primarily Node.js, but services/ocrService.js shells out to
+# a Python worker (services/ocr_worker.py + services/parsers/) for PDF
+# rasterization, Tesseract OCR, and waybill field parsing — used on BOTH the
+# Google Vision and Tesseract code paths. Nixpacks' default Node provider
+# only installs Node/npm, so without this file the container has no `python3`
+# binary at all, which is exactly what produces:
+#   "OCR failed: OCR process failed: spawn python3 ENOENT"
+#
+# This adds Python 3 + the two system-level OCR dependencies pip alone can't
+# provide (poppler for PDF->image rasterization, tesseract for the OCR engine
+# itself), then installs both the Node and Python dependencies during build.
+
+[phases.setup]
+nixPkgs = ["nodejs_20", "python311"]
+aptPkgs = ["poppler-utils", "tesseract-ocr"]
+
+[phases.install]
+cmds = [
+  "npm ci || npm install",
+  "python3 -m ensurepip --upgrade",
+  "python3 -m pip install --break-system-packages -r requirements.txt"
+]
+
+[start]
+cmd = "node server.js"

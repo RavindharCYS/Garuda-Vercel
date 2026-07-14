@@ -41,6 +41,17 @@ const dbInit = require('./utils/initDb');
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// Railway (and most PaaS hosts) sit the app behind a reverse proxy, so
+// req.ip / X-Forwarded-For are only trustworthy once Express is told the
+// proxy is there. Without this, express-rate-limit throws
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR (it refuses to trust a forwarded IP
+// header by default) and req.ip falls back to the proxy's own address,
+// which would make every request look like it came from one client.
+// `1` trusts exactly one hop (Railway's edge proxy) rather than `true`,
+// which would trust the whole chain and let a client spoof its own IP via
+// X-Forwarded-For.
+app.set('trust proxy', 1);
+
 // ── Security middleware ───────────────────────────────────────────────────────
 app.use(helmet({
   contentSecurityPolicy: false, // We serve the SPA

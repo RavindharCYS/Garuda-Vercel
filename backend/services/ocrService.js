@@ -33,6 +33,18 @@ const { computeFieldScore } = require('./waybillFieldSchema');
 
 const WORKER_PATH = path.join(__dirname, 'ocr_worker.py');
 
+// The Python worker's dependencies (pdfplumber, PyMuPDF, pdf2image, etc.) are
+// installed into the project's virtualenv, not into whatever `python3`
+// resolves to on PATH (e.g. Railway's Nix-provided interpreter at
+// /root/.nix-profile/bin/python3, which has none of them). Point execFile at
+// the venv interpreter explicitly; PYTHON_PATH lets ops override this per
+// environment without a code change.
+const PYTHON_EXECUTABLE =
+  process.env.PYTHON_PATH ||
+  path.join(process.cwd(), '.venv', 'bin', 'python');
+
+logger.info(`Using Python interpreter: ${PYTHON_EXECUTABLE}`);
+
 async function getSetting(key, fallback) {
   try {
     const row = await db.get('SELECT value FROM system_settings WHERE key = ?', [key]);
@@ -44,7 +56,7 @@ async function getSetting(key, fallback) {
  *  the field-completeness score, and mandatory-field validation warnings. */
 function parseFieldsFromText(rawText) {
   return new Promise((resolve, reject) => {
-    const child = execFile('python3', [WORKER_PATH, '--parse-only'], { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
+    const child = execFile(PYTHON_EXECUTABLE, [WORKER_PATH, '--parse-only'], { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
       if (err && !stdout) return reject(new Error(`Field parser failed: ${err.message}`));
       try {
         const parsed = JSON.parse(stdout.trim());
@@ -62,7 +74,7 @@ function runTesseract(filePath) {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(filePath)) return reject(new Error(`File not found: ${filePath}`));
     const start = Date.now();
-    const child = execFile('python3', [WORKER_PATH, filePath], { timeout: 280_000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
+    const child = execFile(PYTHON_EXECUTABLE, [WORKER_PATH, filePath], { timeout: 280_000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
       const ok = !err;
       logApiCall({ provider: 'tesseract', endpoint: 'ocr', success: ok, responseMs: Date.now() - start, error: err?.message });
       if (err && !stdout) return reject(new Error(`OCR process failed: ${err.message}`));
@@ -112,7 +124,7 @@ for i, p in enumerate(pages[:3]):
     paths.append(out)
 print(json.dumps(paths))
 `;
-    execFile('python3', ['-c', script, filePath, tmpDir], { timeout: 60000 }, (err, stdout) => {
+    execFile(PYTHON_EXECUTABLE, ['-c', script, filePath, tmpDir], { timeout: 60000 }, (err, stdout) => {
       if (err) return reject(err);
       try { resolve(JSON.parse(stdout.trim())); } catch (e) { reject(e); }
     });

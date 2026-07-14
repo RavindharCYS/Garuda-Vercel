@@ -409,7 +409,7 @@ async function generateWaybill(shipment, outputPath) {
     const sigW = (W - MARGIN * 2 - 14) / 2;
     [
       ['Shipper Signature & Date', MARGIN],
-      ['Received by Garuda Express', MARGIN + sigW + 14],
+      ['Garuda Express', MARGIN + sigW + 14],
     ].forEach(([label, sx]) => {
       doc.moveTo(sx, y + 26).lineTo(sx + sigW, y + 26).lineWidth(0.75).stroke(BRAND.gray);
       doc.font('Helvetica').fontSize(8.5).fillColor(BRAND.gray).text(label, sx, y + 30);

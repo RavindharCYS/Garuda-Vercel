@@ -1,11 +1,12 @@
 // src/pages/ShipmentsPage.jsx
 import React, { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { FaXmark, FaBox, FaArrowRight, FaCheck, FaArrowLeft } from 'react-icons/fa6'
+import { FaXmark, FaBox, FaArrowRight, FaCheck, FaArrowLeft, FaDownload } from 'react-icons/fa6'
 import AdminLayout from '../components/AdminLayout.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
 import LoadingTruck from '../components/LoadingTruck.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { downloadWaybill, downloadWaybillsZip } from '../utils/waybillDownload.js'
 
 const STATUSES = ['Processing','Picked Up','In Transit','Out for Delivery','Delivered','Exception','Returned']
 const CARRIERS  = ['FedEx','UPS','DHL','Aramex','BlueDart','DTDC','Trackon','Delhivery','Ekart','IndiaPost','Xpressbees','Shadowfax','Professional Couriers','TNT','Other']
@@ -25,6 +26,8 @@ export default function ShipmentsPage() {
   const [dateTo,   setDateTo]   = useState('')
   const [deleting, setDeleting] = useState(false)
   const [syncing,  setSyncing]  = useState(false)
+  const [selected, setSelected] = useState(new Set())
+  const [downloading, setDownloading] = useState(false)
 
   // NOTE: the old admin-only Manual/Auto Tracking toggle that used to live
   // here is gone — shipments are registered with a tracking provider once
@@ -46,6 +49,7 @@ export default function ShipmentsPage() {
     const res  = await authFetch(`/api/shipments?${params}`)
     const data = await res.json()
     if (data.success) { setShipments(data.data); setTotal(data.total) }
+    setSelected(new Set())
     setLoading(false)
   }, [page, q, status, carrier, dateFrom, dateTo])
 
@@ -57,6 +61,29 @@ export default function ShipmentsPage() {
     await authFetch(`/api/shipments/${id}`, { method:'DELETE' })
     fetchShipments()
     setDeleting(false)
+  }
+
+  const toggleSelect = (id) => setSelected(s => {
+    const next = new Set(s)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
+  const toggleSelectAll = () => setSelected(s => (
+    s.size === shipments.length ? new Set() : new Set(shipments.map(s => s.id))
+  ))
+
+  const handleDownloadOne = async (id, geNum) => {
+    setDownloading(true)
+    try { await downloadWaybill(authFetch, id, `GarudaWaybill_${geNum}.pdf`) }
+    catch (err) { alert('Download failed: ' + err.message) }
+    finally { setDownloading(false) }
+  }
+
+  const handleDownloadSelected = async () => {
+    setDownloading(true)
+    try { await downloadWaybillsZip(authFetch, [...selected]) }
+    catch (err) { alert('Download failed: ' + err.message) }
+    finally { setDownloading(false) }
   }
 
   const handleSyncPending = async () => {
@@ -92,6 +119,12 @@ export default function ShipmentsPage() {
           <p style={{ color:'#766D82', fontSize:14, marginTop:4 }}>{total} total shipments</p>
         </div>
         <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          {selected.size > 1 && (
+            <button onClick={handleDownloadSelected} disabled={downloading}
+              style={{ display:'flex', alignItems:'center', gap:6, border:'none', background:'linear-gradient(135deg,#7B3FAD,#5B2D8B)', color:'white', padding:'8px 16px', borderRadius:12, fontSize:13, fontWeight:700, cursor:downloading?'not-allowed':'pointer', opacity:downloading?0.6:1 }}>
+              <FaDownload size={13} /> {downloading ? 'Preparing…' : `Download Selected (${selected.size})`}
+            </button>
+          )}
           {isAdmin && (
             <button onClick={handleSyncPending} disabled={syncing}
               title="Pull the latest status for any registered shipment that hasn't gotten an update yet — useful if TrackingMore/17Track's webhook can't reach this server yet (e.g. local development)"
@@ -170,7 +203,11 @@ export default function ShipmentsPage() {
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
               <thead>
                 <tr style={{ borderBottom:'1px solid #f0e8f9', backgroundColor:'#faf5ff' }}>
-                  {['GE Number','From','To','Wt / Pcs','Status','Date','Actions'].map(h => (
+                  <th style={{ padding:'12px 14px', width:36 }}>
+                    <input type="checkbox" checked={shipments.length>0 && selected.size===shipments.length}
+                      onChange={toggleSelectAll} style={{ cursor:'pointer' }} />
+                  </th>
+                  {['GE Number','From','To','Carrier','Wt / Pcs','Status','Date','Actions'].map(h => (
                     <th key={h} style={{ padding:'12px 14px', textAlign:'left', fontWeight:700, color:'#7B3FAD', fontSize:10, textTransform:'uppercase', letterSpacing:'0.08em', whiteSpace:'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -180,6 +217,9 @@ export default function ShipmentsPage() {
                   <tr key={s.id} style={{ borderBottom:'1px solid #faf5ff', backgroundColor:idx%2===0?'white':'#fdf8ff', transition:'background 0.15s' }}
                     onMouseEnter={e=>e.currentTarget.style.backgroundColor='#f5f0ff'}
                     onMouseLeave={e=>e.currentTarget.style.backgroundColor=idx%2===0?'white':'#fdf8ff'}>
+                    <td style={{ padding:'13px 14px' }}>
+                      <input type="checkbox" checked={selected.has(s.id)} onChange={() => toggleSelect(s.id)} style={{ cursor:'pointer' }} />
+                    </td>
                     <td style={{ padding:'13px 14px' }}>
                       <div style={{ fontFamily:'monospace', fontWeight:800, color:'#7B3FAD', fontSize:13 }}>{s.ge_tracking_number}</div>
                       {s.garuda_waybill_generated ? <div style={{ fontSize:9, color:'#059669', backgroundColor:'#d1fae5', padding:'1px 6px', borderRadius:50, display:'inline-flex', alignItems:'center', gap:3, marginTop:3, fontWeight:700 }}><FaCheck size={8} /> Waybill</div> : null}
@@ -192,6 +232,7 @@ export default function ShipmentsPage() {
                       <div style={{ fontWeight:600, color:'#1a0820', maxWidth:120, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{s.to_name || '—'}</div>
                       <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>{[s.to_city,s.to_country].filter(Boolean).join(', ')}</div>
                     </td>
+                    <td style={{ padding:'13px 14px', color:'#374151', fontWeight:600 }}>{s.carrier || '—'}</td>
                     <td style={{ padding:'13px 14px', textAlign:'center' }}>
                       <div style={{ color:'#374151', fontWeight:600 }}>{s.billing_weight || s.actual_weight ? `${s.billing_weight||s.actual_weight} kg` : '—'}</div>
                       <div style={{ fontSize:11, color:'#9ca3af' }}>{s.pieces||1} pc{s.pieces!==1?'s':''}</div>
@@ -210,6 +251,11 @@ export default function ShipmentsPage() {
                           style={{ width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:8, color:'#3b82f6', backgroundColor:'rgba(59,130,246,0.08)', textDecoration:'none', transition:'all 0.15s' }}>
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                         </Link>
+                        {/* Download waybill */}
+                        <button onClick={() => handleDownloadOne(s.id, s.ge_tracking_number)} disabled={downloading} title="Download Waybill"
+                          style={{ width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:8, color:'#059669', backgroundColor:'rgba(5,150,105,0.08)', border:'none', cursor:downloading?'not-allowed':'pointer', transition:'all 0.15s' }}>
+                          <FaDownload size={13} />
+                        </button>
                         {/* Delete (admin only) */}
                         {isAdmin && (
                           <button onClick={() => handleDelete(s.id, s.ge_tracking_number)} disabled={deleting} title="Delete"

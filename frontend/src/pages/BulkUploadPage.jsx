@@ -7,6 +7,7 @@ import {
 } from 'react-icons/fa6'
 import AdminLayout from '../components/AdminLayout.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { downloadWaybill, confirmAndDownloadWaybills } from '../utils/waybillDownload.js'
 
 const ALLOWED = ['image/png','image/jpeg','image/jpg','image/tiff','image/webp','application/pdf']
 
@@ -241,6 +242,11 @@ function BulkImportTab() {
       if (!data.success) throw new Error(data.error)
       setJob(j => ({ ...j, status:'Imported' }))
       loadRecentJobs()
+      const ids = (data.shipments || []).map(s => s.id)
+      if (ids.length) {
+        try { await confirmAndDownloadWaybills(authFetch, ids) }
+        catch (err) { setError('Waybill generation failed: ' + err.message) }
+      }
     } catch (err) { setError(err.message) }
     finally { setImporting(false) }
   }
@@ -378,6 +384,10 @@ function PendingRowFixForm({ jobId, row }) {
       const data = await res.json()
       if (!data.success) throw new Error(data.error || 'Could not complete this row')
       setDone(data.shipment)
+      if (data.shipment?.id) {
+        try { await confirmAndDownloadWaybills(authFetch, [data.shipment.id]) }
+        catch (err) { setError('Waybill generation failed: ' + err.message) }
+      }
     } catch (err) { setError(err.message) }
     finally { setSaving(false) }
   }
@@ -441,6 +451,11 @@ function VendorExcelImportTab() {
       const data = await res.json()
       if (!data.success) throw new Error(data.error || 'Import failed')
       setResult(data)
+      const ids = (data.shipments || []).map(s => s.id)
+      if (ids.length) {
+        try { await confirmAndDownloadWaybills(authFetch, ids) }
+        catch (err) { setError('Waybill generation failed: ' + err.message) }
+      }
     } catch (err) { setError(err.message) }
     finally { setUploading(false) }
   }
@@ -522,7 +537,7 @@ function VendorExcelImportTab() {
               ['Imported', result.imported, '#059669'],
               ['Duplicates', result.duplicates, '#d97706'],
               ['Invalid', result.invalid, '#dc2626'],
-              ['Waybills Generated', result.generatedWaybills, '#7B3FAD'],
+              ['Pending Rows', result.pendingRows?.length || 0, '#7B3FAD'],
             ].map(([label, value, color]) => (
               <div key={label} style={{ backgroundColor:'white', padding:'16px 14px', textAlign:'center' }}>
                 <div style={{ fontSize:24, fontWeight:800, color }}>{value}</div>
@@ -620,6 +635,7 @@ export default function BulkUploadPage() {
   }
 
   const handleGenerate = async (itemId, geNum) => {
+    if (!window.confirm('Generate Waybill?')) return
     // Find shipment ID from GE number
     setItems(prev => prev.map(i => i.id===itemId ? {...i,generating:true} : i))
     try {
@@ -628,13 +644,7 @@ export default function BulkUploadPage() {
       const shipId = listData.data?.[0]?.id
       if (!shipId) throw new Error('Shipment not found')
 
-      const res = await authFetch(`/api/shipments/${shipId}/generate-waybill`, { method:'POST' })
-      if (!res.ok) throw new Error('Generation failed')
-      const blob = await res.blob()
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
-      a.href=url; a.download=`GarudaExpress_${geNum}.pdf`; a.click()
-      URL.revokeObjectURL(url)
+      await downloadWaybill(authFetch, shipId, `GarudaWaybill_${geNum}.pdf`)
       showToast('Waybill downloaded!')
     } catch (err) {
       showToast('Failed: '+err.message,'error')

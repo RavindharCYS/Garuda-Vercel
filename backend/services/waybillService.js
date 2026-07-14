@@ -35,8 +35,21 @@ const PAGE = { width: 595.28, height: 841.89 }; // A4
 const MARGIN = 36;
 
 function trackingUrl(geNumber) {
-  const base = (process.env.PUBLIC_TRACKING_URL || process.env.FRONTEND_URL || 'https://garudaexpress.com').replace(/\/$/, '');
+  const base = (process.env.PUBLIC_TRACKING_URL || process.env.FRONTEND_URL || 'https://www.garudaexpressint.com').replace(/\/$/, '');
   return `${base}/?track=${encodeURIComponent(geNumber)}`;
+}
+
+/**
+ * Builds the customer-facing waybill PDF filename: "<Sender Name>_<GE Number>.pdf"
+ * instead of the old generic "GarudaExpress_<GE>.pdf". Falls back to "Shipper"
+ * if the sender name isn't available, and strips characters that aren't safe
+ * in a filename/Content-Disposition header.
+ */
+function buildWaybillFilename(shipment) {
+  const rawName = clean(shipment?.from_name) || 'Shipper';
+  const safeName = rawName.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'Shipper';
+  const ge = clean(shipment?.ge_tracking_number) || 'PENDING';
+  return `${safeName}_${ge}.pdf`;
 }
 
 /** Renders a horizontal gradient rectangle. */
@@ -169,7 +182,15 @@ function drawDetailGrid(doc, rows, x, y, w) {
   return cy;
 }
 
-function formatWeight(shipment) {
+/** Chargeable/billed weight — billing_weight first, falling back to actual_weight. */
+function formatChargeableWeight(shipment) {
+  const w = shipment.billing_weight ?? shipment.actual_weight;
+  if (w === null || w === undefined || w === '') return '—';
+  return `${w} ${shipment.weight_unit || 'kg'}`;
+}
+
+/** Physical/actual weight — actual_weight first, falling back to billing_weight. */
+function formatActualWeight(shipment) {
   const w = shipment.actual_weight ?? shipment.billing_weight;
   if (w === null || w === undefined || w === '') return '—';
   return `${w} ${shipment.weight_unit || 'kg'}`;
@@ -230,26 +251,43 @@ async function generateWaybill(shipment, outputPath) {
       .fillColor('#D9C8EC')
       .text('International Courier & Logistics', MARGIN + 68, 50);
     doc.fontSize(7.5).fillColor('#C9AEE3')
-      .text('www.garudaexpress.com', MARGIN + 68, 64);
+      .text('www.garudaexpressint.com', MARGIN + 68, 64);
 
     doc.font('Helvetica-Bold').fontSize(9).fillColor('#D9C8EC')
       .text('AIR WAYBILL', W - MARGIN - 200, 22, { width: 200, align: 'right' });
     doc.font('Helvetica-Bold').fontSize(22).fillColor('#FFFFFF')
       .text(ge, W - MARGIN - 200, 34, { width: 200, align: 'right' });
+    // NOTE: the redundant "Tracking No: <GE>" line that used to sit under the
+    // big GE number here has been removed — the GE number is already shown
+    // large just above, and again in the Shipment Details grid below.
     doc.font('Helvetica').fontSize(7.5).fillColor('#C9AEE3')
-      .text(`Tracking No: ${ge}`, W - MARGIN - 200, 60, { width: 200, align: 'right' });
-    doc.text('Carrier: Garuda Express', W - MARGIN - 200, 72, { width: 200, align: 'right' });
+      .text('Carrier: Garuda Express', W - MARGIN - 200, 64, { width: 200, align: 'right' });
 
     // Accent strip
     doc.rect(0, 96, W, 4).fill(BRAND.purple);
 
     y = 116;
 
+    // ── Watermark — faint Garuda logo centered behind the page body, drawn
+    // before any other body content so everything else renders on top of it.
+    // Solid-filled boxes (party boxes, detail grid, etc.) naturally cover it
+    // wherever they overlap; it only shows through genuinely white space,
+    // which is the standard subtle watermark look. ──────────────────────────
+    if (fs.existsSync(LOGO_PATH)) {
+      try {
+        const wmSize = 340;
+        doc.save();
+        doc.opacity(0.05);
+        doc.image(LOGO_PATH, (W - wmSize) / 2, 300, { width: wmSize, height: wmSize });
+        doc.restore();
+      } catch (_) { /* non-fatal */ }
+    }
+
     // ── Shipment quick-facts strip ───────────────────────────────────────
     const facts = [
       ['Ship Date', fieldLabel(shipment.ship_date)],
       ['Pieces', fieldLabel(shipment.pieces, '1')],
-      ['Weight', formatWeight(shipment)],
+      ['Chargeable Weight', formatChargeableWeight(shipment)],
       ['Service', fieldLabel(shipment.service_type)],
     ];
     const factW = (W - MARGIN * 2) / facts.length;
@@ -303,14 +341,11 @@ async function generateWaybill(shipment, outputPath) {
       // the Garuda (GE) tracking number only.
       ['Carrier', 'Garuda Express'],
       ['Carrier Tracking No.', ge],
-      // NOTE: deliberately ASCII "->" rather than the Unicode "→" arrow —
-      // PDFKit's standard (non-embedded) Helvetica only supports WinAnsi
-      // encoding, which has no arrow glyph; it silently renders as garbage
-      // (confirmed visually: "MAA !' AUH"). ASCII renders correctly everywhere.
-      ['Origin / Destination', `${fieldLabel(shipment.origin_code, '—')} -> ${fieldLabel(shipment.destination_code, '—')}`],
+      ['Ship Date', fieldLabel(shipment.ship_date)],
+      ['Origin', fieldLabel(shipment.origin_code)],
+      ['Destination', fieldLabel(shipment.destination_code)],
       ['Dimensions (L x W x H)', formatDimensions(shipment)],
-      ['Billing Weight', shipment.billing_weight ? `${shipment.billing_weight} ${shipment.weight_unit || 'kg'}` : formatWeight(shipment)],
-      ['Reference No.', fieldLabel(shipment.reference_number || shipment.invoice_number)],
+      ['Actual Weight', formatActualWeight(shipment)],
       ['Declared Value', formatDeclaredValue(shipment)],
       ['Billing Type', fieldLabel(shipment.billing_type)],
     ];
@@ -353,17 +388,19 @@ async function generateWaybill(shipment, outputPath) {
     y += 60;
 
     // ── Footer ────────────────────────────────────────────────────────────
-    const footerY = PAGE.height - 40;
-    doc.rect(0, footerY, W, 40).fill(BRAND.dark);
+    const footerY = PAGE.height - 50;
+    doc.rect(0, footerY, W, 50).fill(BRAND.dark);
     doc.font('Helvetica').fontSize(7.5).fillColor('#C9AEE3')
       .text(
         'This waybill is generated electronically by Garuda Express and is non-negotiable. ' +
         'Carriage is subject to the originating carrier\u2019s standard terms and conditions.',
-        MARGIN, footerY + 13, { width: W - MARGIN * 2, align: 'center' }
+        MARGIN, footerY + 11, { width: W - MARGIN * 2, align: 'center' }
       );
+    doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#FFFFFF')
+      .text('Terms & Policy: https://www.garudaexpressint.com/Terms', MARGIN, footerY + 30, { width: W - MARGIN * 2, align: 'center' });
 
     doc.end();
   });
 }
 
-module.exports = { generateWaybill, trackingUrl };
+module.exports = { generateWaybill, trackingUrl, buildWaybillFilename };

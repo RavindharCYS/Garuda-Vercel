@@ -7,10 +7,11 @@ const express  = require('express');
 const multer   = require('multer');
 const path     = require('path');
 const fs       = require('fs');
+const os       = require('os');
 const db       = require('../utils/db');
 const { requireAuth, requireAdmin, requirePermission } = require('../middleware/auth');
 const { extractWaybillData, extractWaybillDataBatch } = require('../services/ocrService');
-const { generateWaybill }           = require('../services/waybillService');
+const { generateWaybill, buildWaybillFilename } = require('../services/waybillService');
 const { generateGENumber }          = require('../utils/generateGE');
 const { logAudit } = require('../utils/audit');
 const { importExcelShipments } = require('../services/excelImport');
@@ -549,24 +550,85 @@ router.post('/:id/reprocess', requirePermission('shipments.create'), async (req,
 });
 
 // ── POST /api/shipments/:id/generate-waybill ──────────────────────────────────
+// Generates the PDF into the OS temp directory, streams it to the client
+// under "<Sender Name>_<GE Number>.pdf", then deletes the temp file once the
+// download finishes — the backend never keeps a copy on disk. Using a fixed
+// (non-timestamped) temp filename per GE number also means calling this
+// twice (e.g. after editing a shipment) simply overwrites the same temp
+// file instead of ever accumulating duplicates.
 router.post('/:id/generate-waybill', async (req, res) => {
   if (isNaN(parseInt(req.params.id))) return res.status(400).json({ success: false, error: 'Invalid ID' });
   const shipment = await db.get('SELECT * FROM shipments WHERE id = ?', [req.params.id]);
   if (!shipment) return res.status(404).json({ success: false, error: 'Not found' });
   if (!(await canAccess(req, shipment))) return res.status(403).json({ success: false, error: 'You can only generate waybills for your own shipments' });
 
-  const WAYBILL_DIR = path.join(UPLOAD_DIR, 'waybills');
-  if (!fs.existsSync(WAYBILL_DIR)) fs.mkdirSync(WAYBILL_DIR, { recursive: true });
-  const outputPath = path.join(WAYBILL_DIR, `GE_${shipment.ge_tracking_number}_${Date.now()}.pdf`);
+  const outputPath = path.join(os.tmpdir(), `garuda_waybill_${shipment.ge_tracking_number}.pdf`);
+  const downloadName = buildWaybillFilename(shipment);
 
   try {
     await generateWaybill(shipment, outputPath);
     await db.run(`UPDATE shipments SET garuda_waybill_generated=1, updated_at=datetime('now') WHERE id=?`, [shipment.id]);
     logAudit(req, { action: 'GENERATE_WAYBILL', entity: 'shipments', entityId: shipment.id, actor: req.user });
-    res.download(outputPath, `GarudaExpress_${shipment.ge_tracking_number}.pdf`);
+    res.download(outputPath, downloadName, (err) => {
+      fs.unlink(outputPath, () => {}); // best-effort cleanup — nothing persists on the backend either way
+      if (err && !res.headersSent) {
+        res.status(500).json({ success: false, error: 'Waybill generation failed: ' + err.message });
+      }
+    });
   } catch (err) {
+    fs.existsSync(outputPath) && fs.unlink(outputPath, () => {});
     console.error('[Waybill]', err);
     res.status(500).json({ success: false, error: 'Waybill generation failed: ' + err.message });
+  }
+});
+
+// ── POST /api/shipments/waybills/bulk-download ────────────────────────────────
+// Generates waybill PDFs for multiple shipments (used by the Shipments page
+// multi-select download, and by the "Generate Waybill?" prompt after a bulk
+// PDF/Excel import) and streams them back as a single ZIP. Nothing is written
+// to permanent backend storage — everything happens in a temp directory that
+// is removed right after the ZIP is sent.
+router.post('/waybills/bulk-download', async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(n => !isNaN(n)) : [];
+  if (!ids.length) return res.status(400).json({ success: false, error: 'ids (array of shipment IDs) is required' });
+
+  const shipments = await db.all(`SELECT * FROM shipments WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+  const accessible = [];
+  for (const s of shipments) {
+    if (await canAccess(req, s)) accessible.push(s);
+  }
+  if (!accessible.length) return res.status(404).json({ success: false, error: 'No accessible shipments found for the given IDs' });
+
+  const AdmZip = require('adm-zip');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'garuda-waybills-'));
+  const zip = new AdmZip();
+
+  try {
+    const usedNames = new Set();
+    for (const shipment of accessible) {
+      let name = buildWaybillFilename(shipment);
+      // Guard against two shipments sharing the same sender name + GE clash
+      // (shouldn't happen since GE numbers are unique, but be defensive).
+      if (usedNames.has(name)) name = `${shipment.ge_tracking_number}_${name}`;
+      usedNames.add(name);
+
+      const outputPath = path.join(tmpDir, name);
+      await generateWaybill(shipment, outputPath);
+      zip.addLocalFile(outputPath);
+      await db.run(`UPDATE shipments SET garuda_waybill_generated=1, updated_at=datetime('now') WHERE id=?`, [shipment.id]);
+    }
+
+    logAudit(req, { action: 'GENERATE_WAYBILL_BULK', entity: 'shipments', details: `Generated ${accessible.length} waybill(s)`, actor: req.user });
+
+    const zipBuffer = zip.toBuffer();
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="Garuda_Waybills_${Date.now()}.zip"`);
+    res.send(zipBuffer);
+  } catch (err) {
+    console.error('[Waybill Bulk]', err);
+    res.status(500).json({ success: false, error: 'Bulk waybill generation failed: ' + err.message });
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
 
@@ -603,7 +665,7 @@ router.post('/import-excel', requirePermission('shipments.create'), excelUpload.
 
     logAudit(req, {
       action: 'EXCEL_IMPORT', entity: 'shipments',
-      details: `${vendor} — read ${summary.rowsRead}, imported ${summary.imported}, duplicates ${summary.duplicates}, invalid ${summary.invalid}, waybills ${summary.generatedWaybills}, job #${summary.jobId}`,
+      details: `${vendor} — read ${summary.rowsRead}, imported ${summary.imported}, duplicates ${summary.duplicates}, invalid ${summary.invalid}, job #${summary.jobId}`,
       actor: req.user,
     });
 
@@ -615,10 +677,9 @@ router.post('/import-excel', requirePermission('shipments.create'), excelUpload.
       imported: summary.imported,
       duplicates: summary.duplicates,
       invalid: summary.invalid,
-      generatedWaybills: summary.generatedWaybills,
       skippedRows: summary.skipped,   // kept for backward compatibility (CSV export of skipped rows)
       pendingRows: summary.pending,   // same data + recordId, for the "fill in missing fields" review UI
-      shipments: summary.shipments,
+      shipments: summary.shipments,   // frontend uses these IDs for the "Generate Waybill?" bulk-download prompt
     });
   } catch (err) {
     console.error('[ExcelImport]', err);

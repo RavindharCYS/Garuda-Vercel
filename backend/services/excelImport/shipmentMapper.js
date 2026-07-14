@@ -68,6 +68,11 @@ function toShipmentRecord(n) {
     currency: clean(n.currency) || 'INR',
 
     booking_date: toDate(n.booking_date),
+    // The vendor Excel sheets record this under a column named "Booking
+    // Date" (see iclParser.js / worldFirstParser.js) — that's the shipment's
+    // ship date, so it's recorded into ship_date too (used for filtering,
+    // sorting, and shown on the Garuda Waybill's "Ship Date" fields).
+    ship_date: toDate(n.booking_date),
     service_type: clean(n.service_name || n.mode),
     invoice_number: clean(n.invoice_number),
     status: 'Processing',

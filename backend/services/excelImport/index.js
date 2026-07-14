@@ -2,9 +2,11 @@
 // Implements the "Excel Upload Workflow" from the requirement doc end-to-end:
 //   Read Excel -> Identify Vendor -> Extract Required Fields ->
 //   Convert into Shipment Object -> Validate -> Save Shipment ->
-//   Generate Garuda Waybill -> Generate GE Tracking Number ->
-//   Register for Tracking (one time, then TrackingMore/17Track push updates
-//   to routes/webhooks.js — no polling, no cycles, no per-shipment interval).
+//   Generate GE Tracking Number -> Register for Tracking (one time, then
+//   TrackingMore/17Track push updates to routes/webhooks.js — no polling, no
+//   cycles, no per-shipment interval). Garuda Waybill generation is a
+//   separate, on-demand step (see createShipmentFromRecord's doc comment
+//   below) rather than part of this pipeline.
 //
 // Deliberately a standalone module (not a modification of the OCR bulk-upload
 // pipeline in services/bulkUploadService.js) so the existing PDF workflow is
@@ -16,13 +18,10 @@
 // Name / Consignee Name later and complete the import for that row.
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
 const db = require('../../utils/db');
 const logger = require('../../utils/logger');
 const { generateGENumber } = require('../../utils/generateGE');
 const { isDuplicateAWB } = require('../../utils/validators');
-const { generateWaybill } = require('../waybillService');
 const { registerForTracking } = require('../trackingService');
 const { createJob, addRecord, finalizeJob } = require('../bulkUploadService');
 
@@ -37,8 +36,6 @@ const VENDOR_PARSERS = {
   'World First': mapWorldFirstRow,
 };
 
-const WAYBILL_DIR = path.join(__dirname, '../../uploads/waybills');
-
 const INSERT_SHIPMENT_SQL = `
   INSERT INTO shipments (
     ge_tracking_number, vendor, carrier,
@@ -46,7 +43,7 @@ const INSERT_SHIPMENT_SQL = `
     from_name, from_address, from_city, from_state, from_postal,
     to_name, to_address, to_city, to_state, to_country, to_postal,
     pieces, actual_weight, billing_weight, weight_unit, contents,
-    declared_value, currency, booking_date, service_type, invoice_number,
+    declared_value, currency, booking_date, ship_date, service_type, invoice_number,
     status, carrier_specific, auto_tracking_enabled,
     created_by, updated_at
   ) VALUES (
@@ -55,7 +52,7 @@ const INSERT_SHIPMENT_SQL = `
     ?,?,?,?,?,
     ?,?,?,?,?,?,
     ?,?,?,?,?,
-    ?,?,?,?,?,
+    ?,?,?,?,?,?,
     ?,?,?,
     ?, datetime('now')
   ) RETURNING id
@@ -68,20 +65,26 @@ function shipmentValues(ge, record, userId, autoTrackingEnabled) {
     record.from_name, record.from_address, record.from_city, record.from_state, record.from_postal,
     record.to_name, record.to_address, record.to_city, record.to_state, record.to_country, record.to_postal,
     record.pieces, record.actual_weight, record.billing_weight, record.weight_unit, record.contents,
-    record.declared_value, record.currency, record.booking_date, record.service_type, record.invoice_number,
+    record.declared_value, record.currency, record.booking_date, record.ship_date, record.service_type, record.invoice_number,
     record.status, record.carrier_specific, autoTrackingEnabled ? 1 : 0,
     userId,
   ];
 }
 
 /**
- * Saves a normalized+validated shipment record, generating its GE number,
- * its Garuda Waybill PDF, and registering it for tracking (one time — see
+ * Saves a normalized+validated shipment record, generating its GE number
+ * and registering it for tracking (one time — see
  * services/trackingService.js#registerForTracking) — all the same
  * regardless of whether the row was valid the first time or fixed up later
  * via the "complete a pending row" endpoint (routes/bulkUpload.js).
+ *
+ * NOTE: this no longer auto-generates/stores a Garuda Waybill PDF on the
+ * backend. Per the "Generate Waybill?" requirement, waybill PDFs are only
+ * ever produced on demand — via POST /api/shipments/:id/generate-waybill or
+ * POST /api/shipments/waybills/bulk-download — and are streamed straight to
+ * the requester without being written to permanent backend storage.
  */
-async function createShipmentFromRecord(record, uploadedBy, { autoTrackingEnabled = true, generateWaybills = true } = {}) {
+async function createShipmentFromRecord(record, uploadedBy, { autoTrackingEnabled = true } = {}) {
   const ge = await generateGENumber(db);
   const info = await db.run(INSERT_SHIPMENT_SQL, shipmentValues(ge, record, uploadedBy, autoTrackingEnabled));
   const shipmentId = info.lastInsertRowid;
@@ -89,20 +92,6 @@ async function createShipmentFromRecord(record, uploadedBy, { autoTrackingEnable
   if (autoTrackingEnabled && (record.carrier_tracking_number || record.awb_number)) {
     try { await registerForTracking(shipmentId); }
     catch (err) { logger.warn('Excel import: tracking registration failed', { shipmentId, ge, error: err.message }); }
-  }
-
-  if (generateWaybills) {
-    if (!fs.existsSync(WAYBILL_DIR)) fs.mkdirSync(WAYBILL_DIR, { recursive: true });
-    try {
-      const shipmentRow = await db.get('SELECT * FROM shipments WHERE id = ?', [shipmentId]);
-      const outputPath = path.join(WAYBILL_DIR, `GE_${ge}_${Date.now()}.pdf`);
-      await generateWaybill(shipmentRow, outputPath);
-      await db.run(`UPDATE shipments SET garuda_waybill_generated = 1, updated_at = datetime('now') WHERE id = ?`, [shipmentId]);
-    } catch (err) {
-      // Shipment is already saved and trackable — a waybill PDF failure
-      // shouldn't roll that back, just log it.
-      logger.error('Excel import: waybill generation failed', { shipmentId, ge, error: err.message });
-    }
   }
 
   return { id: shipmentId, ge_tracking_number: ge };
@@ -114,13 +103,14 @@ async function createShipmentFromRecord(record, uploadedBy, { autoTrackingEnable
  * @param {string} opts.filePath   Path to the uploaded .xlsx/.xls on disk
  * @param {string} opts.vendor     'ICL' | 'World First'
  * @param {number} opts.uploadedBy User id performing the import
- * @param {boolean} [opts.generateWaybills=true] Generate a Garuda Waybill PDF per imported row
  * @param {boolean} [opts.autoTrackingEnabled=true] Register each imported shipment with TrackingMore/17Track (one time — see registerForTracking)
  * @param {string} [opts.fileName] Original filename, stored on the review job for display
- * @returns {Promise<object>} Import summary (jobId/rowsRead/imported/duplicates/invalid/generatedWaybills/pending/shipments)
+ * @returns {Promise<object>} Import summary (jobId/rowsRead/imported/duplicates/invalid/pending/shipments) —
+ *   waybill generation is a separate, on-demand step the frontend triggers via
+ *   the "Generate Waybill?" confirmation using the returned `shipments` list.
  */
 async function importExcelShipments({
-  filePath, vendor, uploadedBy, generateWaybills = true,
+  filePath, vendor, uploadedBy,
   autoTrackingEnabled = true, fileName = null,
 }) {
   const parseRow = VENDOR_PARSERS[vendor];
@@ -136,7 +126,7 @@ async function importExcelShipments({
   // just being reported in a one-time summary and lost.
   const jobId = await createJob({ uploadedBy, fileName: fileName || path.basename(filePath), fileType: 'excel' });
 
-  let imported = 0, duplicates = 0, invalid = 0, generatedWaybills = 0;
+  let imported = 0, duplicates = 0, invalid = 0;
   const pending = []; // rows that need the admin to fill in missing fields
   const shipments = [];
 
@@ -164,7 +154,7 @@ async function importExcelShipments({
     // Garuda Waybill PDF ─────────────────────────────────────────────────────
     let created;
     try {
-      created = await createShipmentFromRecord(record, uploadedBy, { autoTrackingEnabled, generateWaybills });
+      created = await createShipmentFromRecord(record, uploadedBy, { autoTrackingEnabled });
       imported++;
     } catch (err) {
       logger.error('Excel import: shipment insert failed', { row: rowNumber, error: err.message });
@@ -180,13 +170,9 @@ async function importExcelShipments({
     shipments.push({ id: created.id, ge_tracking_number: created.ge_tracking_number, tracking_number: record.carrier_tracking_number });
   }
 
-  generatedWaybills = shipments.length
-    ? (await db.get(`SELECT COUNT(*) c FROM shipments WHERE id IN (${shipments.map(() => '?').join(',')}) AND garuda_waybill_generated = 1`, shipments.map(s => s.id))).c
-    : 0;
-
   await finalizeJob(jobId);
 
-  return { jobId, vendor, rowsRead, imported, duplicates, invalid, generatedWaybills, pending, skipped: pending, shipments };
+  return { jobId, vendor, rowsRead, imported, duplicates, invalid, pending, skipped: pending, shipments };
 }
 
 module.exports = { importExcelShipments, createShipmentFromRecord, VENDOR_PARSERS };

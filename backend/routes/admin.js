@@ -18,26 +18,43 @@ const router = express.Router();
 router.use(requireAuth, requireAdmin);
 
 // ── Dashboard stats (requirement spec §10 — Admin Dashboard widgets) ───────────
+// Supports the same filter bar as the Shipments page (date range / status /
+// carrier). With no filters given, the dashboard shows TODAY's data by
+// default rather than all-time totals.
 router.get('/stats', async (req, res) => {
-  const total     = (await db.get('SELECT COUNT(*) as c FROM shipments')).c;
-  const today     = (await db.get("SELECT COUNT(*) as c FROM shipments WHERE DATE(created_at)=DATE('now')")).c;
-  const delivered = (await db.get("SELECT COUNT(*) as c FROM shipments WHERE status='Delivered' OR tracking_status='Delivered'")).c;
-  const inTransit = (await db.get("SELECT COUNT(*) as c FROM shipments WHERE tracking_status IN ('In Transit','Picked Up','Out for Delivery')")).c;
-  const pending   = (await db.get("SELECT COUNT(*) as c FROM shipments WHERE status IN ('Processing')")).c;
-  const exception = (await db.get("SELECT COUNT(*) as c FROM shipments WHERE tracking_status='Exception'")).c;
-  const waybillsGenerated = (await db.get('SELECT COUNT(*) as c FROM shipments WHERE garuda_waybill_generated=1')).c;
-  const manualQueue = (await db.get('SELECT COUNT(*) as c FROM shipments WHERE needs_manual_tracking=1')).c;
+  const today = new Date().toISOString().slice(0, 10);
+  const dateFrom = req.query.date_from || today;
+  const dateTo   = req.query.date_to   || today;
+  const { status, carrier } = req.query;
+
+  const conditions = ['DATE(created_at) >= DATE(?)', 'DATE(created_at) <= DATE(?)'];
+  const params = [dateFrom, dateTo];
+  if (status)  { conditions.push('status = ?');  params.push(status); }
+  if (carrier) { conditions.push('carrier = ?'); params.push(carrier); }
+  const where = `WHERE ${conditions.join(' AND ')}`;
+
+  const total     = (await db.get(`SELECT COUNT(*) as c FROM shipments ${where}`, params)).c;
+  const today_    = (await db.get("SELECT COUNT(*) as c FROM shipments WHERE DATE(created_at)=DATE('now')")).c;
+  const delivered = (await db.get(`SELECT COUNT(*) as c FROM shipments ${where} AND (status='Delivered' OR tracking_status='Delivered')`, params)).c;
+  const inTransit = (await db.get(`SELECT COUNT(*) as c FROM shipments ${where} AND tracking_status IN ('In Transit','Picked Up','Out for Delivery')`, params)).c;
+  const pending   = (await db.get(`SELECT COUNT(*) as c FROM shipments ${where} AND status IN ('Processing')`, params)).c;
+  const exception = (await db.get(`SELECT COUNT(*) as c FROM shipments ${where} AND tracking_status='Exception'`, params)).c;
+  const waybillsGenerated = (await db.get(`SELECT COUNT(*) as c FROM shipments ${where} AND garuda_waybill_generated=1`, params)).c;
+  const manualQueue = (await db.get(`SELECT COUNT(*) as c FROM shipments ${where} AND needs_manual_tracking=1`, params)).c;
   const todaysUploads = (await db.get("SELECT COUNT(*) as c FROM bulk_upload_jobs WHERE DATE(created_at)=DATE('now')")).c;
 
   const byCarrier = await db.all(`
-    SELECT carrier, COUNT(*) as count FROM shipments WHERE carrier IS NOT NULL GROUP BY carrier ORDER BY count DESC LIMIT 15
-  `);
+    SELECT carrier, COUNT(*) as count FROM shipments ${where} AND carrier IS NOT NULL GROUP BY carrier ORDER BY count DESC LIMIT 15
+  `, params);
 
   const byCountry = await db.all(`
-    SELECT to_country as country, COUNT(*) as count FROM shipments WHERE to_country IS NOT NULL AND to_country != ''
+    SELECT to_country as country, COUNT(*) as count FROM shipments ${where} AND to_country IS NOT NULL AND to_country != ''
     GROUP BY to_country ORDER BY count DESC LIMIT 15
-  `);
+  `, params);
 
+  // These three widgets are intentionally fixed rolling windows (last 7
+  // days / 24h) regardless of the filter bar above — they're trend views,
+  // not part of the filtered snapshot.
   const last7days = await db.all(`
     SELECT DATE(created_at) as date, COUNT(*) as count
     FROM shipments WHERE created_at >= DATE('now','-6 days')
@@ -54,8 +71,9 @@ router.get('/stats', async (req, res) => {
 
   res.json({
     success: true,
+    filters: { date_from: dateFrom, date_to: dateTo, status: status || '', carrier: carrier || '' },
     stats: {
-      total, today, delivered, inTransit, pending, exception, waybillsGenerated,
+      total, today: today_, delivered, inTransit, pending, exception, waybillsGenerated,
       manualQueue, todaysUploads, byCarrier, byCountry, last7days, employeeActivity, apiHealth,
     },
   });

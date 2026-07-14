@@ -1,13 +1,18 @@
 // src/pages/AdminDashboard.jsx
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import {
   FaBox, FaCloudArrowUp, FaPlus, FaMagnifyingGlass, FaCalendarDay, FaCircleCheck,
   FaTruck, FaTriangleExclamation, FaInbox, FaFileLines, FaArrowRight, FaUsers, FaClipboardList,
+  FaXmark,
 } from 'react-icons/fa6'
 import AdminLayout from '../components/AdminLayout.jsx'
 import LoadingTruck from '../components/LoadingTruck.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+
+const STATUSES = ['Processing','Picked Up','In Transit','Out for Delivery','Delivered','Exception','Returned']
+const CARRIERS  = ['FedEx','UPS','DHL','Aramex','BlueDart','DTDC','Trackon','Delhivery','Ekart','IndiaPost','Xpressbees','Shadowfax','Professional Couriers','TNT','Other']
+const todayISO = () => new Date().toISOString().slice(0, 10)
 
 function StatCard({ icon, label, value, sub, color }) {
   const colors = {
@@ -122,27 +127,74 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true)
   const [apiUsage, setApiUsage] = useState(null)
 
-  useEffect(() => {
+  // Filter bar — mirrors the Shipments page. Defaults to TODAY so the
+  // dashboard shows present-day data out of the box; widening the range
+  // (or clearing filters back to today) is the same flow as Shipments.
+  const [dateFrom, setDateFrom] = useState(todayISO())
+  const [dateTo,   setDateTo]   = useState(todayISO())
+  const [status,   setStatus]   = useState('')
+  const [carrier,  setCarrier]  = useState('')
+
+  const fetchStats = useCallback(() => {
     if (!isAdmin) { setLoading(false); return }
-    authFetch('/api/admin/stats').then(r=>r.json()).then(d=>{ if(d.success) setStats(d.stats) }).finally(()=>setLoading(false))
+    setLoading(true)
+    const params = new URLSearchParams()
+    if (dateFrom) params.set('date_from', dateFrom)
+    if (dateTo)   params.set('date_to', dateTo)
+    if (status)   params.set('status', status)
+    if (carrier)  params.set('carrier', carrier)
+    authFetch(`/api/admin/stats?${params}`).then(r=>r.json()).then(d=>{ if(d.success) setStats(d.stats) }).finally(()=>setLoading(false))
+  }, [isAdmin, dateFrom, dateTo, status, carrier])
+
+  useEffect(() => { fetchStats() }, [fetchStats])
+  useEffect(() => {
+    if (!isAdmin) return
     authFetch('/api/admin/api-usage').then(r=>r.json()).then(d=>{ if(d.success) setApiUsage(d) }).catch(()=>{})
   }, [isAdmin])
 
+  const isToday = dateFrom === todayISO() && dateTo === todayISO()
+  const resetToToday = () => { setDateFrom(todayISO()); setDateTo(todayISO()); setStatus(''); setCarrier('') }
+
   if (!isAdmin) return <AdminLayout><EmployeeDashboard /></AdminLayout>
 
-  if (loading) return <AdminLayout><LoadingTruck text="Loading dashboard…" /></AdminLayout>
+  if (loading && !stats) return <AdminLayout><LoadingTruck text="Loading dashboard…" /></AdminLayout>
   if (!stats)  return <AdminLayout><div style={{ color:'#dc2626', padding:20 }}>Failed to load stats.</div></AdminLayout>
 
   return (
     <AdminLayout>
       <div style={{ marginBottom:24 }}>
         <h1 style={{ fontSize:24, fontWeight:800, color:'#1a0820', margin:0 }}>Dashboard</h1>
-        <p style={{ color:'#766D82', fontSize:14, marginTop:4 }}>Garuda Express operations overview</p>
+        <p style={{ color:'#766D82', fontSize:14, marginTop:4 }}>Garuda Express operations overview{isToday ? ' — today' : ''}</p>
+      </div>
+
+      {/* Filters — same shape as the Shipments page filter bar */}
+      <div style={{ backgroundColor:'white', borderRadius:16, padding:16, border:'1px solid #f0e8f9', boxShadow:'0 1px 4px rgba(0,0,0,0.04)', marginBottom:24 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:12 }} className="dash-filter-grid">
+          <select value={status} onChange={e=>setStatus(e.target.value)}
+            style={{ border:'1.5px solid #e5e7eb', borderRadius:10, padding:'9px 12px', fontSize:13, outline:'none', backgroundColor:'white' }}>
+            <option value="">All Status</option>
+            {STATUSES.map(s=><option key={s}>{s}</option>)}
+          </select>
+          <select value={carrier} onChange={e=>setCarrier(e.target.value)}
+            style={{ border:'1.5px solid #e5e7eb', borderRadius:10, padding:'9px 12px', fontSize:13, outline:'none', backgroundColor:'white' }}>
+            <option value="">All Carriers</option>
+            {CARRIERS.map(c=><option key={c}>{c}</option>)}
+          </select>
+          <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}
+            style={{ border:'1.5px solid #e5e7eb', borderRadius:10, padding:'9px 12px', fontSize:13, outline:'none' }} />
+          <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}
+            style={{ border:'1.5px solid #e5e7eb', borderRadius:10, padding:'9px 12px', fontSize:13, outline:'none' }} />
+        </div>
+        {!isToday || status || carrier ? (
+          <button onClick={resetToToday} style={{ marginTop:10, background:'none', border:'none', color:'#dc2626', fontSize:12, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+            <FaXmark size={11} /> Reset to today
+          </button>
+        ) : null}
       </div>
 
       {/* Stat cards */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))', gap:16, marginBottom:24 }}>
-        <StatCard icon={<FaBox />} label="Total Shipments"    value={stats.total}             color="purple" />
+        <StatCard icon={<FaBox />} label={isToday ? 'Shipments Today' : 'Shipments (Range)'} value={stats.total}             color="purple" />
         <StatCard icon={<FaCalendarDay />} label="Today"             value={stats.today}             color="blue"   sub="today" />
         <StatCard icon={<FaCircleCheck />} label="Delivered"          value={stats.delivered}         color="emerald" />
         <StatCard icon={<FaTruck />} label="In Transit"         value={stats.inTransit}         color="amber" />
@@ -308,7 +360,7 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      <style>{`.dash-grid{grid-template-columns:1fr!important} @media(min-width:768px){.dash-grid{grid-template-columns:1fr 1fr!important}}`}</style>
+      <style>{`.dash-grid{grid-template-columns:1fr!important} @media(min-width:768px){.dash-grid{grid-template-columns:1fr 1fr!important}} .dash-filter-grid{grid-template-columns:1fr 1fr!important} @media(min-width:700px){.dash-filter-grid{grid-template-columns:1fr 1fr 1fr 1fr!important}}`}</style>
     </AdminLayout>
   )
 }

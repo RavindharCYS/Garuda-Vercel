@@ -253,6 +253,7 @@ async function importJob(jobId, userId, { skipInvalid = true } = {}) {
   const { registerForTracking } = require('./trackingService'); // required lazily to avoid a require cycle (trackingService doesn't need this module)
   const records = await db.all("SELECT * FROM bulk_upload_records WHERE job_id = ? AND validation_status != 'Imported'", [jobId]);
   let imported = 0, skipped = 0;
+  const shipments = [];
 
   const INSERT_SHIPMENT_SQL = `
     INSERT INTO shipments (
@@ -310,6 +311,7 @@ async function importJob(jobId, userId, { skipInvalid = true } = {}) {
       ]);
       await db.run("UPDATE bulk_upload_records SET validation_status='Imported', shipment_id=? WHERE id=?", [info.lastInsertRowid, rec.id]);
       imported++;
+      shipments.push({ id: info.lastInsertRowid, ge_tracking_number: ge });
 
       if (trackingNum) {
         try { await registerForTracking(info.lastInsertRowid); }
@@ -327,7 +329,7 @@ async function importJob(jobId, userId, { skipInvalid = true } = {}) {
 
   queueNotification({ event: 'bulk_upload_completed', userId, context: { jobId, imported, skipped } });
 
-  return { imported, skipped };
+  return { imported, skipped, shipments };
 }
 
 module.exports = {

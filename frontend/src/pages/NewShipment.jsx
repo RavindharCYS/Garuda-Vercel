@@ -7,6 +7,7 @@ import {
 } from 'react-icons/fa6'
 import AdminLayout from '../components/AdminLayout.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { confirmAndDownloadWaybills } from '../utils/waybillDownload.js'
 
 const CARRIERS = ['FedEx','UPS','DHL','Aramex','BlueDart','DTDC','Trackon','Delhivery','Ekart','IndiaPost','Xpressbees','Shadowfax','Professional Couriers','TNT','Purolator','Australia Post','Other']
 const STATUSES = ['Processing','Picked Up','In Transit','Out for Delivery','Delivered','Exception','Returned']
@@ -88,6 +89,8 @@ export default function NewShipment() {
       const res  = await authFetch('/api/shipments', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(form) })
       const data = await res.json()
       if (!data.success) throw new Error(data.error)
+      try { await confirmAndDownloadWaybills(authFetch, [data.data.id]) }
+      catch (err) { alert('Waybill generation failed: ' + err.message) }
       navigate(`/shipments/${data.data.id}`)
     } catch (err) { setError(err.message); setSaving(false) }
   }

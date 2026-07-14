@@ -10,6 +10,7 @@ import AdminLayout from '../components/AdminLayout.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
 import LoadingTruck from '../components/LoadingTruck.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { downloadWaybill } from '../utils/waybillDownload.js'
 
 const CARRIERS = ['FedEx','UPS','DHL','Aramex','BlueDart','DTDC','Trackon','Delhivery','Ekart','IndiaPost','Xpressbees','Shadowfax','Professional Couriers','TNT','Purolator','Other']
 const STATUSES = ['Processing','Picked Up','In Transit','Out for Delivery','Delivered','Exception','Returned']
@@ -136,16 +137,7 @@ export default function ShipmentDetail() {
   const handleGenerateWaybill = async () => {
     setGenLoad(true); setError(null)
     try {
-      const res = await authFetch(`/api/shipments/${id}/generate-waybill`, { method:'POST' })
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({ error:'Unknown error' }))
-        throw new Error(e.error || 'Generation failed')
-      }
-      const blob = await res.blob()
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
-      a.href = url; a.download = `GarudaExpress_${shipment.ge_tracking_number}.pdf`; a.click()
-      URL.revokeObjectURL(url)
+      await downloadWaybill(authFetch, id, `GarudaWaybill_${shipment.ge_tracking_number}.pdf`)
       setShipment(s => ({ ...s, garuda_waybill_generated:1 }))
       setSuccess('Garuda waybill downloaded!')
       setTimeout(() => setSuccess(null), 4000)
@@ -260,7 +252,7 @@ export default function ShipmentDetail() {
                 <span style={{ display:'inline-flex', animation:genLoad?'spin 0.8s linear infinite':undefined }}>
                   {genLoad ? <FaArrowRotateRight size={14} /> : <FaFileLines size={14} />}
                 </span>
-                {merged.garuda_waybill_generated ? 'Re-generate Waybill' : 'Generate Waybill'}
+                {genLoad ? 'Generating…' : 'Generate Waybill'}
               </button>
 
               {/* DELETE */}

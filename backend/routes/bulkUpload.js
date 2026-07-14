@@ -93,7 +93,7 @@ router.post('/:jobId/import', requirePermission('bulk_upload.edit_own'), async (
   }
   const { skipInvalid = true } = req.body || {};
   const result = await bulkUploadService.importJob(job.id, req.user.id, { skipInvalid });
-  res.json({ success: true, ...result });
+  res.json({ success: true, imported: result.imported, skipped: result.skipped, shipments: result.shipments });
 });
 
 // POST /api/bulk-upload/:jobId/records/:recordId/complete — fill in the
@@ -128,7 +128,7 @@ router.post('/:jobId/records/:recordId/complete', requirePermission('bulk_upload
   }
 
   try {
-    const created = await createShipmentFromRecord(merged, req.user.id, { autoTrackingEnabled: true, generateWaybills: true });
+    const created = await createShipmentFromRecord(merged, req.user.id, { autoTrackingEnabled: true });
     await db.run(`
       UPDATE bulk_upload_records SET raw_data = ?, shipment_id = ?, validation_status = 'Imported', validation_errors = NULL WHERE id = ?
     `, [JSON.stringify(merged), created.id, record.id]);

@@ -2,13 +2,13 @@
 nixPkgs = [
   "nodejs_20",
   "python311",
-  "python311Packages.pip",
-  "stdenv.cc.cc.lib"
+  "python311Packages.pip"
 ]
 
 aptPkgs = [
   "poppler-utils",
-  "tesseract-ocr"
+  "tesseract-ocr",
+  "libstdc++6"
 ]
 
 [phases.install]

@@ -18,4 +18,4 @@ cmds = [
 ]
 
 [start]
-cmd = ". .venv/bin/activate && node server.js"
+cmd = "export PATH=/app/.venv/bin"$PATH && node server.js"

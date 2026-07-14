@@ -215,6 +215,35 @@ function formatDeclaredValue(shipment) {
 }
 
 /**
+ * Origin cell — prefers an explicit origin_code (set by the Excel/vendor
+ * import pipeline), otherwise falls back to the shipper's city/country
+ * (already captured on every shipment, OCR-scanned or manually entered).
+ * Garuda Express ships internationally out of India, so if no country is
+ * recorded at all, "India" is used rather than leaving the cell blank.
+ */
+function formatOrigin(shipment) {
+  const code = clean(shipment.origin_code);
+  if (code) return code;
+  const city = clean(shipment.from_city);
+  const country = clean(shipment.from_country) || 'India';
+  return city ? `${city}, ${country}` : country;
+}
+
+/**
+ * Destination cell — same fallback as formatOrigin, but with no default
+ * country (the receiver's country should always be known; if it truly
+ * isn't, showing "—" is more honest than guessing).
+ */
+function formatDestination(shipment) {
+  const code = clean(shipment.destination_code);
+  if (code) return code;
+  const city = clean(shipment.to_city);
+  const country = clean(shipment.to_country);
+  if (!city && !country) return '—';
+  return city ? `${city}, ${country || '—'}` : country;
+}
+
+/**
  * Generate a Garuda Express branded waybill PDF for `shipment` (a row from
  * the shipments table — see utils/initDb.js for the full column list) and
  * write it to `outputPath`. Resolves with `outputPath` on success.
@@ -342,8 +371,8 @@ async function generateWaybill(shipment, outputPath) {
       ['Carrier', 'Garuda Express'],
       ['Carrier Tracking No.', ge],
       ['Ship Date', fieldLabel(shipment.ship_date)],
-      ['Origin', fieldLabel(shipment.origin_code)],
-      ['Destination', fieldLabel(shipment.destination_code)],
+      ['Origin', formatOrigin(shipment)],
+      ['Destination', formatDestination(shipment)],
       ['Dimensions (L x W x H)', formatDimensions(shipment)],
       ['Actual Weight', formatActualWeight(shipment)],
       ['Declared Value', formatDeclaredValue(shipment)],

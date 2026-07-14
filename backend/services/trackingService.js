@@ -104,7 +104,7 @@ async function getStoredTracking(geNumber) {
 
   const events = await db.all(`
     SELECT event_timestamp AS timestamp, status, location
-    FROM tracking_events WHERE ge_tracking_number = ? ORDER BY event_timestamp DESC, id DESC LIMIT 20
+    FROM tracking_events WHERE ge_tracking_number = ? ORDER BY event_timestamp DESC, id DESC
   `, [geNumber]);
 
   if (!events.length) {

@@ -241,7 +241,7 @@ function TrackingResult({ data, geNum, onRefresh }) {
   }
   const sc = STATUS_COLORS[status] || { dot:'#f59e0b', text:'#f59e0b', bg:'rgba(245,158,11,0.08)', border:'rgba(245,158,11,0.25)' }
   const isLive = status === 'In Transit' || status === 'Out for Delivery'
-  const events = (trackingData?.events || []).slice(0, 8)
+  const events = trackingData?.events || []
 
   const fmt = ts => { try { return new Date(ts).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'}) } catch { return ts||'' } }
 
@@ -275,28 +275,28 @@ function TrackingResult({ data, geNum, onRefresh }) {
       )}
 
       {/* Events */}
-      <div style={{ padding:'16px 20px', maxHeight:260, overflowY:'auto' }}>
-        <div style={{ fontSize:9, color:'rgba(255,255,255,0.3)', textTransform:'uppercase', letterSpacing:'0.15em', marginBottom:14 }}>
+      <div style={{ padding:'16px 20px' }}>
+        <div style={{ fontSize:11, color:'rgba(255,255,255,0.35)', textTransform:'uppercase', letterSpacing:'0.15em', marginBottom:16, fontWeight:700 }}>
           Tracking History · {events.length} event{events.length!==1?'s':''}
         </div>
         {events.length === 0 ? (
-          <p style={{ color:'rgba(255,255,255,0.3)', fontSize:13 }}>No tracking events yet. Check back soon.</p>
+          <p style={{ color:'rgba(255,255,255,0.3)', fontSize:15 }}>No tracking events yet. Check back soon.</p>
         ) : (
           <div style={{ position:'relative' }}>
             <div style={{ position:'absolute', left:10, top:0, bottom:0, width:1, backgroundColor:'rgba(255,255,255,0.08)' }} />
             {events.map((e,i) => (
-              <div key={i} style={{ display:'flex', gap:16, marginBottom:16, position:'relative' }}>
+              <div key={i} style={{ display:'flex', gap:16, marginBottom:20, position:'relative' }}>
                 <div style={{ width:20, height:20, borderRadius:'50%', backgroundColor: i===0?sc.dot:'rgba(255,255,255,0.1)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, zIndex:1, marginTop:2 }}>
                   <div style={{ width:6, height:6, borderRadius:'50%', backgroundColor:'white', opacity:i===0?1:0.5 }} />
                 </div>
                 <div>
-                  <div style={{ fontSize:13, fontWeight:i===0?700:400, color:i===0?'white':'rgba(255,255,255,0.6)' }}>{e.status}</div>
+                  <div style={{ fontSize:16, fontWeight:i===0?700:500, color:i===0?'white':'rgba(255,255,255,0.7)' }}>{e.status}</div>
                   {e.location && (
-                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.3)', marginTop:2, display:'flex', alignItems:'center', gap:5 }}>
-                      <FaLocationDot size={9} /> {e.location}
+                    <div style={{ fontSize:13, color:'rgba(255,255,255,0.4)', marginTop:3, display:'flex', alignItems:'center', gap:5 }}>
+                      <FaLocationDot size={11} /> {e.location}
                     </div>
                   )}
-                  <div style={{ fontSize:10, color:'rgba(255,255,255,0.2)', marginTop:2, fontFamily:'monospace' }}>{fmt(e.timestamp)}</div>
+                  <div style={{ fontSize:12, color:'rgba(255,255,255,0.3)', marginTop:3, fontFamily:'monospace' }}>{fmt(e.timestamp)}</div>
                 </div>
               </div>
             ))}

@@ -385,8 +385,13 @@ async function processWebhookUpdate({ provider, trackingNumber, currentStatus, e
 }
 
 async function recordTrackingEvents(shipment, normalized, provider) {
+  // OR IGNORE relies on the unique index on (ge_tracking_number,
+  // event_timestamp, status, location) — see utils/initDb.js. Webhooks (and
+  // the manual "Sync Pending Now" refresh) tend to resend a shipment's whole
+  // event history on every call rather than just what's new, so without this
+  // the same ~10 real events turn into hundreds of duplicate rows over time.
   const INSERT_SQL = `
-    INSERT INTO tracking_events (shipment_id, ge_tracking_number, event_timestamp, status, location, provider, raw)
+    INSERT OR IGNORE INTO tracking_events (shipment_id, ge_tracking_number, event_timestamp, status, location, provider, raw)
     VALUES (?,?,?,?,?,?,?)
   `;
   for (const ev of (normalized.events || []).slice(0, 20)) {

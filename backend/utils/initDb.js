@@ -360,6 +360,24 @@ async function initSqlite() {
     );
     CREATE INDEX IF NOT EXISTS idx_tracking_events_ge ON tracking_events(ge_tracking_number);
 
+    -- One-time cleanup for databases that already accumulated duplicate rows
+    -- (every webhook/sync-pending call used to unconditionally re-insert the
+    -- shipment's whole event history — see services/trackingService.js —
+    -- which is how some shipments ended up with 300+ rows for ~10 real
+    -- events). Keeps the earliest row per distinct event, discards the rest.
+    -- No-op once a database is already clean.
+    DELETE FROM tracking_events
+    WHERE id NOT IN (
+      SELECT MIN(id) FROM tracking_events
+      GROUP BY ge_tracking_number, event_timestamp, status, location
+    );
+
+    -- Going forward, recordTrackingEvents() in trackingService.js inserts
+    -- with "INSERT OR IGNORE", which this constraint turns into a no-op on
+    -- the exact same event instead of a duplicate row.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tracking_events_unique
+      ON tracking_events(ge_tracking_number, event_timestamp, status, location);
+
     CREATE TABLE IF NOT EXISTS api_logs (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       provider      TEXT NOT NULL,
@@ -657,7 +675,8 @@ async function initPostgres() {
       location            TEXT,
       provider            TEXT,
       raw                 TEXT,
-      created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(ge_tracking_number, event_timestamp, status, location)
     );
     CREATE INDEX IF NOT EXISTS idx_tracking_events_ge ON tracking_events(ge_tracking_number);
 

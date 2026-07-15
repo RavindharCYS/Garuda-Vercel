@@ -2,12 +2,23 @@
 nixPkgs = [
   "nodejs_20",
   "python311",
-  "python311Packages.pip"
+  "python311Packages.pip",
+  # Provides libstdc++.so.6 from the SAME nix closure as python311/numpy's
+  # compiled C-extensions. Nix-built python binaries use a patched ELF
+  # interpreter that only resolves shared libs via nixPkgs' own closure /
+  # LD_LIBRARY_PATH — it does NOT consult /etc/ld.so.cache, so the
+  # apt-installed libstdc++6 below is invisible to it even though it's
+  # present on disk. This is the actual fix; aptPkgs' libstdc++6 alone
+  # (previous config) can never satisfy a nix-built python's loader.
+  "stdenv.cc.cc.lib"
 ]
 
 aptPkgs = [
   "poppler-utils",
   "tesseract-ocr",
+  # Kept for anything (e.g. tesseract-ocr itself) that resolves libs via
+  # the normal system loader instead of nix's — harmless, not a substitute
+  # for stdenv.cc.cc.lib above.
   "libstdc++6"
 ]
 
@@ -15,8 +26,11 @@ aptPkgs = [
 cmds = [
   "npm ci || npm install",
   "python3 -m venv .venv",
-  ". .venv/bin/activate && pip install -r requirements.txt"
+  ". .venv/bin/activate && pip install -r requirements.txt",
+  # Fail the BUILD loudly if the OCR/parsing deps can't actually import,
+  # instead of deploying a service that silently 500s on every upload.
+  ". .venv/bin/activate && python -c \"import numpy, pdfplumber, pdf2image, pytesseract, PIL; print('OCR pipeline deps import OK — numpy', numpy.__version__)\""
 ]
 
 [start]
-cmd = "export PATH=/app/.venv/bin:$PATH && node server.js"
+cmd = "export LD_LIBRARY_PATH=\"$(find /nix/store -maxdepth 4 -name 'libstdc++.so.6' 2>/dev/null | xargs -n1 dirname 2>/dev/null | sort -u | paste -sd: -):/usr/lib/x86_64-linux-gnu:/usr/lib:${LD_LIBRARY_PATH}\" && export PATH=/app/.venv/bin:$PATH && node server.js"

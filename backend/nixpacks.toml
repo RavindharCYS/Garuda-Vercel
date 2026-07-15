@@ -29,7 +29,11 @@ cmds = [
   ". .venv/bin/activate && pip install -r requirements.txt",
   # Fail the BUILD loudly if the OCR/parsing deps can't actually import,
   # instead of deploying a service that silently 500s on every upload.
-  ". .venv/bin/activate && python -c \"import numpy, pdfplumber, pdf2image, pytesseract, PIL; print('OCR pipeline deps import OK — numpy', numpy.__version__)\""
+  # NOTE: nixPkgs entries (stdenv.cc.cc.lib) are NOT auto-added to
+  # LD_LIBRARY_PATH by nixpacks — only to PATH — and each entry in this
+  # `cmds` array runs as its own separate shell/RUN layer, so the export
+  # has to be repeated here rather than reused from an earlier line.
+  ". .venv/bin/activate && export LD_LIBRARY_PATH=\"$(find /nix/store -maxdepth 6 -name 'libstdc++.so.6' 2>/dev/null | xargs -n1 dirname 2>/dev/null | sort -u | paste -sd: -):/usr/lib/x86_64-linux-gnu:/usr/lib:${LD_LIBRARY_PATH}\" && python -c \"import numpy, pdfplumber, pdf2image, pytesseract, PIL; print('OCR pipeline deps import OK — numpy', numpy.__version__)\""
 ]
 
 [start]

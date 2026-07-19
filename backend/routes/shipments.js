@@ -689,20 +689,35 @@ router.post('/import-excel', requirePermission('shipments.create'), excelUpload.
   }
 });
 
-// ── GET /api/shipments/export/xlsx ────────────────────────────────────────────
+// ── GET /api/shipments/export/xlsx — "Full Content" export ───────────────────
+// Every shipment matching the current filter bar (search/status/carrier/date
+// range — same filters as the main listing endpoint above, not just
+// date/status), with every field, regardless of what page you're on.
+// Pairs with the client-side "Visible Content" export in ShipmentsPage.jsx,
+// which builds its own file from exactly what's rendered on screen instead
+// of calling this endpoint.
 router.get('/export/xlsx', requireAdmin, async (req, res) => {
   const XLSX = require('xlsx');
-  const { date_from, date_to, status } = req.query;
+  const { q, status, carrier, date_from, date_to } = req.query;
   const conditions = [], params = [];
+
+  if (q) {
+    conditions.push(`(ge_tracking_number LIKE ? OR carrier_tracking_number LIKE ? OR awb_number LIKE ? OR from_name LIKE ? OR to_name LIKE ? OR from_contact LIKE ? OR to_contact LIKE ? OR contents LIKE ? OR invoice_number LIKE ? OR reference_number LIKE ? OR sender_company LIKE ? OR receiver_company LIKE ? OR route_code LIKE ?)`);
+    const like = `%${q}%`;
+    params.push(like, like, like, like, like, like, like, like, like, like, like, like, like);
+  }
+  if (status)    { conditions.push('status = ?');     params.push(status); }
+  if (carrier)   { conditions.push('carrier = ?');    params.push(carrier); }
   if (date_from) { conditions.push('ship_date >= ?'); params.push(date_from); }
   if (date_to)   { conditions.push('ship_date <= ?'); params.push(date_to); }
-  if (status)    { conditions.push('status = ?');     params.push(status); }
+
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const rows  = await db.all(`SELECT * FROM shipments ${where} ORDER BY created_at DESC`, params);
   const clean = rows.map(({ ocr_raw_text, ...rest }) => rest);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clean), 'Shipments');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clean.length ? clean : [{ note: 'No matching shipments' }]), 'Shipments');
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  logAudit(req, { action: 'SHIPMENTS_EXPORT', entity: 'shipments', details: `scope=full, rows=${clean.length}, filters=${JSON.stringify({ q, status, carrier, date_from, date_to })}`, actor: req.user });
   res.setHeader('Content-Disposition', `attachment; filename=GarudaExpress_Export_${Date.now()}.xlsx`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);

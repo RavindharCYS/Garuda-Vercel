@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { FaXmark, FaBox, FaArrowRight, FaCheck, FaArrowLeft, FaDownload } from 'react-icons/fa6'
 import AdminLayout from '../components/AdminLayout.jsx'
 import ConfirmModal from '../components/ConfirmModal.jsx'
+import ChoiceModal from '../components/ChoiceModal.jsx'
 import Toast from '../components/Toast.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
 import LoadingTruck from '../components/LoadingTruck.jsx'
@@ -11,12 +12,13 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { useConfirm } from '../hooks/useConfirm.js'
 import { useToast } from '../hooks/useToast.js'
 import { downloadWaybill, downloadWaybillsZip } from '../utils/waybillDownload.js'
+import { exportVisibleShipments, exportFullShipments } from '../utils/shipmentExport.js'
 
 const STATUSES = ['Processing','Picked Up','In Transit','Out for Delivery','Delivered','Exception','Returned']
 const CARRIERS  = ['FedEx','UPS','DHL','Aramex','BlueDart','DTDC','Trackon','Delhivery','Ekart','IndiaPost','Xpressbees','Shadowfax','Professional Couriers','TNT','Other']
 
 export default function ShipmentsPage() {
-  const { authFetch, isAdmin, token } = useAuth()
+  const { authFetch, isAdmin } = useAuth()
   const [shipments, setShipments] = useState([])
   const [total,     setTotal]     = useState(0)
   const [loading,   setLoading]   = useState(true)
@@ -110,12 +112,26 @@ export default function ShipmentsPage() {
     } finally { setSyncing(false) }
   }
 
-  const handleExport = () => {
-    const params = new URLSearchParams()
-    if (dateFrom) params.set('date_from', dateFrom)
-    if (dateTo)   params.set('date_to', dateTo)
-    if (status)   params.set('status', status)
-    window.open(`/api/shipments/export/xlsx?${params}&token=${token}`)
+  const [exportChoiceOpen, setExportChoiceOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
+
+  const handleExport = () => setExportChoiceOpen(true)
+
+  const handleExportVisible = () => {
+    setExportChoiceOpen(false)
+    exportVisibleShipments(shipments)
+  }
+
+  const handleExportFull = async () => {
+    setExportChoiceOpen(false)
+    setExporting(true)
+    try {
+      await exportFullShipments(authFetch, { q, status, carrier, dateFrom, dateTo })
+    } catch (err) {
+      showToast('Export failed: ' + err.message, 'error')
+    } finally {
+      setExporting(false)
+    }
   }
 
   const clearFilters = () => { setQ(''); setStatus(''); setCarrier(''); setDateFrom(''); setDateTo(''); setPage(1) }
@@ -134,6 +150,25 @@ export default function ShipmentsPage() {
         confirmPhrase={confirmState?.confirmPhrase}
         onConfirm={handleConfirm}
         onCancel={handleCancel}
+      />
+      <ChoiceModal
+        open={exportChoiceOpen}
+        title="Export shipments"
+        message="Choose what to include in the export."
+        onCancel={() => setExportChoiceOpen(false)}
+        options={[
+          {
+            label: 'Visible Content',
+            description: `Just this page — the ${shipments.length} shipment(s) and columns currently shown in the table.`,
+            onClick: handleExportVisible,
+          },
+          {
+            label: 'Full Content',
+            description: 'Every shipment matching the current filters (all pages), with every field.',
+            onClick: handleExportFull,
+            primary: true,
+          },
+        ]}
       />
       {/* Header */}
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:16, marginBottom:24, flexWrap:'wrap' }}>
@@ -157,10 +192,10 @@ export default function ShipmentsPage() {
             </button>
           )}
           {isAdmin && (
-            <button onClick={handleExport}
-              style={{ display:'flex', alignItems:'center', gap:6, border:'1.5px solid #e5e7eb', backgroundColor:'white', color:'#374151', padding:'8px 16px', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer' }}>
+            <button onClick={handleExport} disabled={exporting}
+              style={{ display:'flex', alignItems:'center', gap:6, border:'1.5px solid #e5e7eb', backgroundColor:'white', color:'#374151', padding:'8px 16px', borderRadius:12, fontSize:13, fontWeight:600, cursor: exporting ? 'not-allowed' : 'pointer', opacity: exporting ? 0.6 : 1 }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Export XLSX
+              {exporting ? 'Exporting…' : 'Export XLSX'}
             </button>
           )}
           <Link to="/shipments/bulk"

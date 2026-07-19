@@ -3,6 +3,8 @@ import React, { useState, useEffect } from 'react'
 import { FaArrowRotateRight, FaArrowRight, FaCheck, FaTriangleExclamation, FaSatelliteDish, FaBoxArchive, FaBell, FaCircleDot, FaCopy, FaDownload, FaTrash } from 'react-icons/fa6'
 import AdminLayout from '../components/AdminLayout.jsx'
 import ConfirmModal from '../components/ConfirmModal.jsx'
+import Toast from '../components/Toast.jsx'
+import { useToast } from '../hooks/useToast.js'
 import { useAuth } from '../context/AuthContext.jsx'
 
 function Field({ label, children, hint }) {
@@ -55,6 +57,7 @@ export default function SettingsPage() {
   const [deleteAllResult, setDeleteAllResult] = useState(null)
   const [deleteAllError, setDeleteAllError] = useState(null)
   const DELETE_ALL_PHRASE = 'DELETE ALL DATA'
+  const { toast, showToast } = useToast()
 
   const load = () => {
     setLoading(true)
@@ -113,7 +116,7 @@ export default function SettingsPage() {
       a.remove()
       window.URL.revokeObjectURL(url)
     } catch (err) {
-      alert('Export failed: ' + err.message)
+      showToast('Export failed: ' + err.message, 'error')
     } finally {
       setExporting(false)
     }
@@ -147,6 +150,7 @@ export default function SettingsPage() {
 
   return (
     <AdminLayout>
+      <Toast toast={toast} />
       <div style={{ marginBottom:24 }}>
         <h1 style={{ fontSize:24, fontWeight:800, color:'#1a0820', margin:0 }}>System Settings</h1>
         <p style={{ color:'#766D82', fontSize:14, marginTop:4 }}>Configure OCR, tracking, retention, and notifications</p>

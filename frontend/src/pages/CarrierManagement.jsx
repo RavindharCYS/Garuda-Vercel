@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react'
 import { FaXmark, FaTriangleExclamation, FaArrowRotateRight, FaTruck } from 'react-icons/fa6'
 import AdminLayout from '../components/AdminLayout.jsx'
+import ConfirmModal from '../components/ConfirmModal.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 
 function CarrierModal({ carrier, onClose, onSave }) {
@@ -71,6 +72,7 @@ export default function CarrierManagement() {
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
   const [tab, setTab] = useState('International')
+  const [confirmDeactivateId, setConfirmDeactivateId] = useState(null)
 
   const load = () => {
     setLoading(true)
@@ -87,8 +89,11 @@ export default function CarrierManagement() {
     setModal(null); load()
   }
 
-  const handleDeactivate = async (id) => {
-    if (!window.confirm('Deactivate this carrier? It will no longer be offered for new shipments.')) return
+  const handleDeactivate = (id) => setConfirmDeactivateId(id)
+
+  const confirmDeactivate = async () => {
+    const id = confirmDeactivateId
+    setConfirmDeactivateId(null)
     await authFetch(`/api/carriers/${id}`, { method:'DELETE' }); load()
   }
 
@@ -97,6 +102,15 @@ export default function CarrierManagement() {
   return (
     <AdminLayout>
       {modal !== null && <CarrierModal carrier={modal?.id ? modal : null} onClose={()=>setModal(null)} onSave={handleSave} />}
+
+      <ConfirmModal
+        open={!!confirmDeactivateId}
+        title="Deactivate this carrier?"
+        message="It will no longer be offered for new shipments."
+        danger
+        onConfirm={confirmDeactivate}
+        onCancel={() => setConfirmDeactivateId(null)}
+      />
 
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:24, flexWrap:'wrap', gap:12 }}>
         <div>

@@ -7,9 +7,11 @@ import {
   FaSatelliteDish, FaCircleDot,
 } from 'react-icons/fa6'
 import AdminLayout from '../components/AdminLayout.jsx'
+import ConfirmModal from '../components/ConfirmModal.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
 import LoadingTruck from '../components/LoadingTruck.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useConfirm } from '../hooks/useConfirm.js'
 import { downloadWaybill } from '../utils/waybillDownload.js'
 
 const CARRIERS = ['FedEx','UPS','DHL','Aramex','BlueDart','DTDC','Trackon','Delhivery','Ekart','IndiaPost','Xpressbees','Shadowfax','Professional Couriers','TNT','Purolator','Other']
@@ -80,6 +82,7 @@ export default function ShipmentDetail() {
   const [trackSaving, setTrackSaving] = useState(false)
   const [trackSaved, setTrackSaved] = useState(false)
   const [changes,   setChanges]   = useState({})
+  const { confirmState, confirm, handleConfirm, handleCancel } = useConfirm()
   const [error,     setError]     = useState(null)
   const [success,   setSuccess]   = useState(null)
 
@@ -121,7 +124,13 @@ export default function ShipmentDetail() {
   }
 
   const handleReprocess = async () => {
-    if (!window.confirm('Re-extract this shipment\'s data from the original uploaded file? This will overwrite the current sender/receiver/shipment fields with a fresh OCR pass — any manual edits to those fields will be lost (status and notes are untouched).')) return
+    const ok = await confirm({
+      title: 'Re-extract this shipment\'s data?',
+      message: 'This runs a fresh OCR pass from the original uploaded file and overwrites the current sender/receiver/shipment fields — any manual edits to those fields will be lost (status and notes are untouched).',
+      danger: true,
+      confirmLabel: 'Re-extract',
+    })
+    if (!ok) return
     setReprocLoad(true); setError(null); setSuccess(null)
     try {
       const res  = await authFetch(`/api/shipments/${id}/reprocess`, { method:'POST' })
@@ -146,7 +155,13 @@ export default function ShipmentDetail() {
   }
 
   const handleDelete = async () => {
-    if (!window.confirm(`Permanently delete ${shipment?.ge_tracking_number}?`)) return
+    const ok = await confirm({
+      title: 'Permanently delete this shipment?',
+      message: `Delete ${shipment?.ge_tracking_number}? This cannot be undone.`,
+      danger: true,
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
     await authFetch(`/api/shipments/${id}`, { method:'DELETE' })
     navigate('/shipments')
   }
@@ -204,6 +219,17 @@ export default function ShipmentDetail() {
   return (
     <AdminLayout>
       <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+
+      <ConfirmModal
+        open={!!confirmState}
+        title={confirmState?.title}
+        message={confirmState?.message}
+        danger={confirmState?.danger}
+        confirmLabel={confirmState?.confirmLabel}
+        confirmPhrase={confirmState?.confirmPhrase}
+        onConfirm={handleConfirm}
+        onCancel={handleCancel}
+      />
 
       {/* Page header */}
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:16, marginBottom:24, flexWrap:'wrap' }}>

@@ -56,15 +56,28 @@ export async function downloadWaybillsZip(authFetch, shipmentIds) {
  * Confirms with the user, then generates + downloads — used right after
  * creating shipment(s) via single entry, bulk PDF/CSV/ZIP upload, or Excel
  * vendor import, per the "Generate Waybill?" prompt requirement.
+ *
+ * `confirmFn` should be a promise-returning `(opts) => Promise<boolean>` —
+ * pass the `confirm` function from ../hooks/useConfirm.js so the prompt
+ * renders through the app's own <ConfirmModal> rather than a native
+ * window.confirm() popup. Falls back to window.confirm() if no confirmFn is
+ * given, so this still works from anywhere that hasn't wired up the hook.
+ *
  * @param {function} authFetch
  * @param {(number|string)[]} shipmentIds
+ * @param {function} [confirmFn]
  * @returns {Promise<boolean>} whether the user confirmed (and generation was attempted)
  */
-export async function confirmAndDownloadWaybills(authFetch, shipmentIds) {
+export async function confirmAndDownloadWaybills(authFetch, shipmentIds, confirmFn) {
   if (!shipmentIds?.length) return false
   const many = shipmentIds.length > 1
-  const ok = window.confirm(many ? `Generate Waybill for ${shipmentIds.length} shipments?` : 'Generate Waybill?')
+  const message = many ? `Generate Waybill for ${shipmentIds.length} shipments?` : 'Generate Waybill?'
+
+  const ok = confirmFn
+    ? await confirmFn({ title: 'Generate Waybill?', message })
+    : window.confirm(message)
   if (!ok) return false
+
   if (many) await downloadWaybillsZip(authFetch, shipmentIds)
   else await downloadWaybill(authFetch, shipmentIds[0])
   return true

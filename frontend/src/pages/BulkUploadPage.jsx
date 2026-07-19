@@ -6,7 +6,11 @@ import {
   FaCamera, FaFolderOpen, FaMagnifyingGlass, FaInbox, FaFileExcel, FaDownload,
 } from 'react-icons/fa6'
 import AdminLayout from '../components/AdminLayout.jsx'
+import ConfirmModal from '../components/ConfirmModal.jsx'
+import Toast from '../components/Toast.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useConfirm } from '../hooks/useConfirm.js'
+import { useToast } from '../hooks/useToast.js'
 import { downloadWaybill, confirmAndDownloadWaybills } from '../utils/waybillDownload.js'
 
 const ALLOWED = ['image/png','image/jpeg','image/jpg','image/tiff','image/webp','application/pdf']
@@ -560,9 +564,8 @@ export default function BulkUploadPage() {
   const [items,    setItems]    = useState([])
   const [scanning, setScanning] = useState(false)
   const [dragOver, setDragOver] = useState(false)
-  const [toast,    setToast]    = useState(null)
-
-  const showToast = (msg, type='success') => { setToast({msg,type}); setTimeout(()=>setToast(null), 4000) }
+  const { toast, showToast } = useToast()
+  const { confirmState, confirm, handleConfirm, handleCancel } = useConfirm()
 
   const addFiles = useCallback((incoming) => {
     const valid = Array.from(incoming).filter(f => ALLOWED.includes(f.type))
@@ -609,7 +612,8 @@ export default function BulkUploadPage() {
   }
 
   const handleGenerate = async (itemId, geNum) => {
-    if (!window.confirm('Generate Waybill?')) return
+    const ok = await confirm({ title: 'Generate Waybill?', message: `Generate the Garuda Waybill for ${geNum}?` })
+    if (!ok) return
     // Find shipment ID from GE number
     setItems(prev => prev.map(i => i.id===itemId ? {...i,generating:true} : i))
     try {
@@ -637,12 +641,17 @@ export default function BulkUploadPage() {
     <AdminLayout>
       <style>{`@keyframes spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }`}</style>
 
-      {/* Toast */}
-      {toast && (
-        <div style={{ position:'fixed', top:20, right:20, zIndex:300, padding:'12px 20px', borderRadius:16, fontSize:13, fontWeight:700, boxShadow:'0 8px 24px rgba(0,0,0,0.15)', display:'flex', alignItems:'center', gap:8, backgroundColor:toast.type==='error'?'#dc2626':'#059669', color:'white', animation:'slideIn 0.3s ease' }}>
-          {toast.type==='error'?<FaXmark size={13}/>:<FaCheck size={13}/>} {toast.msg}
-        </div>
-      )}
+      <Toast toast={toast} />
+      <ConfirmModal
+        open={!!confirmState}
+        title={confirmState?.title}
+        message={confirmState?.message}
+        danger={confirmState?.danger}
+        confirmLabel={confirmState?.confirmLabel}
+        confirmPhrase={confirmState?.confirmPhrase}
+        onConfirm={handleConfirm}
+        onCancel={handleCancel}
+      />
 
       {/* Header */}
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:16, marginBottom:20, flexWrap:'wrap' }}>
@@ -670,13 +679,6 @@ export default function BulkUploadPage() {
 
       {tab === 'excel' ? <VendorExcelImportTab /> : tab === 'import' ? <BulkImportTab /> : (
       <>
-      {/* Toast */}
-      {toast && (
-        <div style={{ position:'fixed', top:20, right:20, zIndex:300, padding:'12px 20px', borderRadius:16, fontSize:13, fontWeight:700, boxShadow:'0 8px 24px rgba(0,0,0,0.15)', display:'flex', alignItems:'center', gap:8, backgroundColor:toast.type==='error'?'#dc2626':'#059669', color:'white', animation:'slideIn 0.3s ease' }}>
-          {toast.type==='error'?<FaXmark size={13}/>:<FaCheck size={13}/>} {toast.msg}
-        </div>
-      )}
-
       {/* Sub-header with counts */}
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'flex-end', gap:16, marginBottom:24, flexWrap:'wrap' }}>
         <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>

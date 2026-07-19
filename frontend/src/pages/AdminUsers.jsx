@@ -5,6 +5,7 @@ import {
   FaUser, FaPen, FaRotate, FaLockOpen, FaBan,
 } from 'react-icons/fa6'
 import AdminLayout from '../components/AdminLayout.jsx'
+import ConfirmModal from '../components/ConfirmModal.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 
 function UserModal({ user, onClose, onSave }) {
@@ -101,6 +102,7 @@ export default function AdminUsers() {
   const [modal,   setModal]   = useState(null)
   const [tempPw,  setTempPw]  = useState(null)
   const [busyId,  setBusyId]  = useState(null)
+  const [confirmState, setConfirmState] = useState(null) // { title, message, danger, onConfirm }
 
   const load = () => {
     setLoading(true)
@@ -117,19 +119,32 @@ export default function AdminUsers() {
     setModal(null); load()
   }
 
-  const handleDeactivate = async (id) => {
-    if (!window.confirm('Deactivate this user?')) return
-    await authFetch(`/api/admin/users/${id}`, { method:'DELETE' }); load()
+  const handleDeactivate = (id) => {
+    setConfirmState({
+      title: 'Deactivate this user?',
+      message: 'They will no longer be able to log in until reactivated.',
+      danger: true,
+      onConfirm: async () => {
+        setConfirmState(null)
+        await authFetch(`/api/admin/users/${id}`, { method:'DELETE' }); load()
+      },
+    })
   }
 
-  const handleResetPassword = async (u) => {
-    if (!window.confirm(`Generate a temporary password for @${u.username}? They will be required to change it on next login.`)) return
-    setBusyId(u.id)
-    try {
-      const res = await authFetch(`/api/admin/users/${u.id}/reset-password`, { method:'POST' })
-      const data = await res.json()
-      if (data.success) setTempPw({ password: data.tempPassword, username: u.username })
-    } finally { setBusyId(null); load() }
+  const handleResetPassword = (u) => {
+    setConfirmState({
+      title: 'Generate a temporary password?',
+      message: `@${u.username} will be required to change it on next login.`,
+      onConfirm: async () => {
+        setConfirmState(null)
+        setBusyId(u.id)
+        try {
+          const res = await authFetch(`/api/admin/users/${u.id}/reset-password`, { method:'POST' })
+          const data = await res.json()
+          if (data.success) setTempPw({ password: data.tempPassword, username: u.username })
+        } finally { setBusyId(null); load() }
+      },
+    })
   }
 
   const handleUnlock = async (u) => {
@@ -138,11 +153,17 @@ export default function AdminUsers() {
     finally { setBusyId(null); load() }
   }
 
-  const handleForceReset = async (u) => {
-    if (!window.confirm(`Force @${u.username} to change their password on next login?`)) return
-    setBusyId(u.id)
-    try { await authFetch(`/api/admin/users/${u.id}/force-reset`, { method:'POST' }) }
-    finally { setBusyId(null); load() }
+  const handleForceReset = (u) => {
+    setConfirmState({
+      title: 'Force a password change?',
+      message: `@${u.username} will be required to change their password on next login.`,
+      onConfirm: async () => {
+        setConfirmState(null)
+        setBusyId(u.id)
+        try { await authFetch(`/api/admin/users/${u.id}/force-reset`, { method:'POST' }) }
+        finally { setBusyId(null); load() }
+      },
+    })
   }
 
   const iconBtnStyle = (bg, color) => ({ width:30, height:30, borderRadius:8, border:'none', backgroundColor:bg, color, cursor:'pointer', fontSize:13, display:'flex', alignItems:'center', justifyContent:'center' })
@@ -151,6 +172,15 @@ export default function AdminUsers() {
     <AdminLayout>
       {modal !== null && <UserModal user={modal?.id ? modal : null} onClose={()=>setModal(null)} onSave={handleSave} />}
       {tempPw && <TempPasswordModal tempPassword={tempPw.password} username={tempPw.username} onClose={()=>setTempPw(null)} />}
+
+      <ConfirmModal
+        open={!!confirmState}
+        title={confirmState?.title}
+        message={confirmState?.message}
+        danger={confirmState?.danger}
+        onConfirm={confirmState?.onConfirm}
+        onCancel={() => setConfirmState(null)}
+      />
 
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:24, flexWrap:'wrap', gap:12 }}>
         <div>

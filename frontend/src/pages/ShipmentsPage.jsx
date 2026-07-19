@@ -3,9 +3,13 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { FaXmark, FaBox, FaArrowRight, FaCheck, FaArrowLeft, FaDownload } from 'react-icons/fa6'
 import AdminLayout from '../components/AdminLayout.jsx'
+import ConfirmModal from '../components/ConfirmModal.jsx'
+import Toast from '../components/Toast.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
 import LoadingTruck from '../components/LoadingTruck.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useConfirm } from '../hooks/useConfirm.js'
+import { useToast } from '../hooks/useToast.js'
 import { downloadWaybill, downloadWaybillsZip } from '../utils/waybillDownload.js'
 
 const STATUSES = ['Processing','Picked Up','In Transit','Out for Delivery','Delivered','Exception','Returned']
@@ -28,6 +32,8 @@ export default function ShipmentsPage() {
   const [syncing,  setSyncing]  = useState(false)
   const [selected, setSelected] = useState(new Set())
   const [downloading, setDownloading] = useState(false)
+  const { confirmState, confirm, handleConfirm, handleCancel } = useConfirm()
+  const { toast, showToast } = useToast()
 
   // NOTE: the old admin-only Manual/Auto Tracking toggle that used to live
   // here is gone — shipments are registered with a tracking provider once
@@ -56,7 +62,13 @@ export default function ShipmentsPage() {
   useEffect(() => { fetchShipments() }, [fetchShipments])
 
   const handleDelete = async (id, geNum) => {
-    if (!window.confirm(`Delete shipment ${geNum}? This cannot be undone.`)) return
+    const ok = await confirm({
+      title: 'Delete this shipment?',
+      message: `Delete shipment ${geNum}? This cannot be undone.`,
+      danger: true,
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
     setDeleting(true)
     await authFetch(`/api/shipments/${id}`, { method:'DELETE' })
     fetchShipments()
@@ -75,14 +87,14 @@ export default function ShipmentsPage() {
   const handleDownloadOne = async (id, geNum) => {
     setDownloading(true)
     try { await downloadWaybill(authFetch, id, `GarudaWaybill_${geNum}.pdf`) }
-    catch (err) { alert('Download failed: ' + err.message) }
+    catch (err) { showToast('Download failed: ' + err.message, 'error') }
     finally { setDownloading(false) }
   }
 
   const handleDownloadSelected = async () => {
     setDownloading(true)
     try { await downloadWaybillsZip(authFetch, [...selected]) }
-    catch (err) { alert('Download failed: ' + err.message) }
+    catch (err) { showToast('Download failed: ' + err.message, 'error') }
     finally { setDownloading(false) }
   }
 
@@ -92,7 +104,7 @@ export default function ShipmentsPage() {
       const res  = await authFetch('/api/shipments/tracking/sync-pending', { method:'POST' })
       const data = await res.json()
       if (data.success) {
-        alert(`Checked ${data.checked} registered shipment(s) — ${data.updated} updated${data.failed ? `, ${data.failed} still no data yet` : ''}.`)
+        showToast(`Checked ${data.checked} registered shipment(s) — ${data.updated} updated${data.failed ? `, ${data.failed} still no data yet` : ''}.`)
         fetchShipments()
       }
     } finally { setSyncing(false) }
@@ -112,6 +124,17 @@ export default function ShipmentsPage() {
 
   return (
     <AdminLayout>
+      <Toast toast={toast} />
+      <ConfirmModal
+        open={!!confirmState}
+        title={confirmState?.title}
+        message={confirmState?.message}
+        danger={confirmState?.danger}
+        confirmLabel={confirmState?.confirmLabel}
+        confirmPhrase={confirmState?.confirmPhrase}
+        onConfirm={handleConfirm}
+        onCancel={handleCancel}
+      />
       {/* Header */}
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:16, marginBottom:24, flexWrap:'wrap' }}>
         <div>

@@ -6,7 +6,9 @@ import {
   FaPaperPlane, FaInbox, FaClipboardList, FaTruck, FaScaleBalanced, FaPlus, FaSatelliteDish,
 } from 'react-icons/fa6'
 import AdminLayout from '../components/AdminLayout.jsx'
+import ConfirmModal from '../components/ConfirmModal.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useConfirm } from '../hooks/useConfirm.js'
 import { confirmAndDownloadWaybills } from '../utils/waybillDownload.js'
 
 const CARRIERS = ['FedEx','UPS','DHL','Aramex','BlueDart','DTDC','Trackon','Delhivery','Ekart','IndiaPost','Xpressbees','Shadowfax','Professional Couriers','TNT','Purolator','Australia Post','Other']
@@ -56,6 +58,7 @@ export default function NewShipment() {
   const [ocrConf,    setOcrConf]    = useState(null)
   const [error,      setError]      = useState(null)
   const [ocrMsg,     setOcrMsg]     = useState(null)
+  const { confirmState, confirm, handleConfirm, handleCancel } = useConfirm()
 
   const set = (e) => setForm(f => ({ ...f, [e.target.name]: e.target.value }))
 
@@ -89,9 +92,17 @@ export default function NewShipment() {
       const res  = await authFetch('/api/shipments', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(form) })
       const data = await res.json()
       if (!data.success) throw new Error(data.error)
-      try { await confirmAndDownloadWaybills(authFetch, [data.data.id]) }
-      catch (err) { alert('Waybill generation failed: ' + err.message) }
-      navigate(`/shipments/${data.data.id}`)
+      try {
+        await confirmAndDownloadWaybills(authFetch, [data.data.id], confirm)
+        navigate(`/shipments/${data.data.id}`)
+      } catch (err) {
+        // Shipment itself was created fine — only the waybill step failed.
+        // Show it inline (not a blocking alert) and give the person a moment
+        // to actually read it before moving on to the shipment page.
+        setError('Shipment created, but waybill generation failed: ' + err.message)
+        setSaving(false)
+        setTimeout(() => navigate(`/shipments/${data.data.id}`), 2200)
+      }
     } catch (err) { setError(err.message); setSaving(false) }
   }
 
@@ -130,6 +141,17 @@ export default function NewShipment() {
       </div>
 
       {error && <div style={{ backgroundColor:'#fef2f2', border:'1px solid #fca5a5', color:'#dc2626', borderRadius:12, padding:'12px 16px', marginBottom:16, fontSize:13, display:'flex', alignItems:'center', gap:8 }}><FaTriangleExclamation size={13} /> {error}</div>}
+
+      <ConfirmModal
+        open={!!confirmState}
+        title={confirmState?.title}
+        message={confirmState?.message}
+        danger={confirmState?.danger}
+        confirmLabel={confirmState?.confirmLabel}
+        confirmPhrase={confirmState?.confirmPhrase}
+        onConfirm={handleConfirm}
+        onCancel={handleCancel}
+      />
 
       <form onSubmit={handleSubmit}>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 320px', gap:20 }} className="form-grid">

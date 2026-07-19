@@ -88,6 +88,15 @@ function toShipmentRecord(n) {
     from_city: clean(n.shipper_city || n.origin),
     from_state: clean(n.shipper_state),
     from_postal: clean(n.shipper_pin),
+    // Neither vendor sheet has a shipper-country column at all — Garuda's own
+    // shipments always originate from India, so default it here rather than
+    // leaving it null. Mirrors the same "Chennai, India" default already
+    // applied to freshly OCR-scanned shipments in
+    // ocrService.js#applyFromLocationDefaults and used as the Waybill's own
+    // formatOrigin() fallback — without this, Excel-imported shipments would
+    // show "Not provided" for From Country everywhere except the Waybill PDF
+    // itself (which has its own separate fallback baked into formatOrigin()).
+    from_country: clean(n.shipper_country) || 'India',
 
     to_name: clean(n.consignee_name),
     to_address: clean(n.consignee_address),

@@ -3,7 +3,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   FaCheck, FaXmark, FaArrowRotateRight, FaCloudArrowUp, FaTriangleExclamation,
-  FaCamera, FaFolderOpen, FaMagnifyingGlass, FaInbox, FaFileExcel, FaDownload,
+  FaCamera, FaMagnifyingGlass, FaInbox, FaFileExcel, FaDownload,
 } from 'react-icons/fa6'
 import AdminLayout from '../components/AdminLayout.jsx'
 import ConfirmModal from '../components/ConfirmModal.jsx'
@@ -178,150 +178,7 @@ function FileCard({ item, onSave, onDiscard, onGenerate }) {
   )
 }
 
-// ── NEW: Bulk Import tab — CSV/Excel/ZIP/PDF-batch via /api/bulk-upload ───────
-function BulkImportTab() {
-  const { authFetch } = useAuth()
-  const inputRef = useRef()
-  const [file, setFile] = useState(null)
-  const [uploading, setUploading] = useState(false)
-  const [job, setJob] = useState(null)
-  const [records, setRecords] = useState([])
-  const [importing, setImporting] = useState(false)
-  const [error, setError] = useState('')
-  const [recentJobs, setRecentJobs] = useState([])
-
-  const loadRecentJobs = () => {
-    authFetch('/api/bulk-upload').then(r=>r.json()).then(d=>{ if(d.success) setRecentJobs(d.data.slice(0,5)) })
-  }
-  React.useEffect(loadRecentJobs, [])
-
-  const handleUpload = async () => {
-    if (!file) return
-    setUploading(true); setError(''); setJob(null); setRecords([])
-    const fd = new FormData()
-    fd.append('file', file)
-    try {
-      const res = await authFetch('/api/bulk-upload', { method:'POST', body:fd })
-      const data = await res.json()
-      if (!data.success) throw new Error(data.error || 'Upload failed')
-      setJob(data.job)
-      setRecords(data.records)
-      loadRecentJobs()
-    } catch (err) { setError(err.message) }
-    finally { setUploading(false) }
-  }
-
-  const handleImport = async () => {
-    if (!job) return
-    setImporting(true)
-    try {
-      const res = await authFetch(`/api/bulk-upload/${job.id}/import`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ skipInvalid:true }) })
-      const data = await res.json()
-      if (!data.success) throw new Error(data.error)
-      setJob(j => ({ ...j, status:'Imported' }))
-      loadRecentJobs()
-      const ids = (data.shipments || []).map(s => s.id)
-      if (ids.length) {
-        try { await confirmAndDownloadWaybills(authFetch, ids) }
-        catch (err) { setError('Waybill generation failed: ' + err.message) }
-      }
-    } catch (err) { setError(err.message) }
-    finally { setImporting(false) }
-  }
-
-  const validCount = records.filter(r => r.validation_status === 'Valid').length
-  const invalidCount = records.filter(r => r.validation_status === 'Invalid').length
-
-  return (
-    <div>
-      <div
-        onClick={()=>inputRef.current?.click()}
-        style={{ border:'2px dashed #d8b4fe', borderRadius:20, padding:'40px 24px', textAlign:'center', marginBottom:20, cursor:'pointer', backgroundColor:'white' }}>
-        <input ref={inputRef} type="file" accept=".csv,.xlsx,.xls,.zip,.pdf" onChange={e=>setFile(e.target.files[0])} style={{ display:'none' }} />
-        <div style={{ fontSize:28, marginBottom:10, color:'#7B3FAD', display:'flex', justifyContent:'center' }}><FaCloudArrowUp size={26} /></div>
-        <div style={{ fontSize:15, fontWeight:700, color:'#1a0820', marginBottom:6 }}>
-          {file ? file.name : 'Choose a CSV, Excel, ZIP, or PDF file'}
-        </div>
-        <div style={{ fontSize:12, color:'#888' }}>CSV/Excel = shipment rows · ZIP = batch of waybill images/PDFs · Max 50MB</div>
-      </div>
-
-      <div style={{ display:'flex', justifyContent:'center', marginBottom:24 }}>
-        <button onClick={handleUpload} disabled={!file || uploading}
-          style={{ padding:'13px 32px', borderRadius:14, background:'linear-gradient(135deg,#7B3FAD,#5B2D8B)', color:'white', fontSize:14, fontWeight:800, border:'none', cursor:(!file||uploading)?'not-allowed':'pointer', opacity:(!file||uploading)?0.6:1 }}>
-          {uploading ? 'Uploading & Processing…' : 'Upload & Validate'}
-        </button>
-      </div>
-
-      {error && <div style={{ backgroundColor:'#fef2f2', border:'1px solid #fca5a5', color:'#dc2626', borderRadius:12, padding:'12px 16px', marginBottom:20, fontSize:13, display:'flex', alignItems:'center', gap:8 }}><FaTriangleExclamation size={13} /> {error}</div>}
-
-      {job && (
-        <div style={{ backgroundColor:'white', borderRadius:20, border:'1px solid #f0e8f9', overflow:'hidden', marginBottom:24 }}>
-          <div style={{ padding:'16px 20px', borderBottom:'1px solid #f0e8f9', display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10 }}>
-            <div>
-              <div style={{ fontWeight:700, color:'#1a0820', fontSize:14 }}>{job.file_name}</div>
-              <div style={{ fontSize:12, color:'#9ca3af' }}>{records.length} rows · {validCount} valid · {invalidCount} need review</div>
-            </div>
-            {job.status === 'Imported' ? (
-              <span style={{ backgroundColor:'rgba(5,150,105,0.1)', color:'#059669', padding:'6px 16px', borderRadius:50, fontSize:12, fontWeight:700, display:'inline-flex', alignItems:'center', gap:6 }}><FaCheck size={11} /> Imported</span>
-            ) : (
-              <button onClick={handleImport} disabled={importing || validCount===0}
-                style={{ padding:'10px 22px', borderRadius:12, background:'linear-gradient(135deg,#7B3FAD,#5B2D8B)', color:'white', border:'none', fontSize:13, fontWeight:700, cursor:(importing||validCount===0)?'not-allowed':'pointer', opacity:(importing||validCount===0)?0.6:1 }}>
-                {importing ? 'Importing…' : `Import ${validCount} Valid Row(s)`}
-              </button>
-            )}
-          </div>
-          <div style={{ overflowX:'auto', maxHeight:420, overflowY:'auto' }}>
-            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
-              <thead>
-                <tr style={{ backgroundColor:'#faf5ff', position:'sticky', top:0 }}>
-                  {['#','Carrier','Tracking #','To','Status','Issues'].map(h => (
-                    <th key={h} style={{ padding:'10px 14px', textAlign:'left', fontWeight:700, color:'#7B3FAD', fontSize:10, textTransform:'uppercase' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {records.map(r => (
-                  <tr key={r.id} style={{ borderBottom:'1px solid #faf5ff' }}>
-                    <td style={{ padding:'10px 14px', color:'#9ca3af' }}>{r.row_number}</td>
-                    <td style={{ padding:'10px 14px' }}>{r.raw_data?.carrier || r.detected_carrier || '—'}</td>
-                    <td style={{ padding:'10px 14px', fontFamily:'monospace' }}>{r.raw_data?.carrier_tracking_number || '—'}</td>
-                    <td style={{ padding:'10px 14px' }}>{r.raw_data?.to_name || '—'}{r.raw_data?.to_country ? `, ${r.raw_data.to_country}` : ''}</td>
-                    <td style={{ padding:'10px 14px' }}>
-                      <span style={{ fontWeight:700, fontSize:10, textTransform:'uppercase', color: r.validation_status==='Valid' ? '#059669' : r.validation_status==='Imported' ? '#7B3FAD' : '#dc2626' }}>
-                        {r.validation_status}
-                      </span>
-                    </td>
-                    <td style={{ padding:'10px 14px', color:'#9ca3af', maxWidth:240 }}>
-                      {[...(r.validation_errors||[]), ...(r.validation_warnings||[])].join('; ') || '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {recentJobs.length > 0 && (
-        <div>
-          <h2 style={{ fontSize:14, fontWeight:700, color:'#1a0820', marginBottom:12 }}>Recent Upload Jobs</h2>
-          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-            {recentJobs.map(j => (
-              <div key={j.id} style={{ display:'flex', justifyContent:'space-between', backgroundColor:'white', borderRadius:12, padding:'10px 16px', border:'1px solid #f0e8f9', fontSize:12 }}>
-                <span style={{ fontWeight:600, color:'#374151' }}>{j.file_name}</span>
-                <span style={{ color:'#9ca3af' }}>{j.success_count} imported · {j.failed_count} failed · {j.status}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ── NEW: Excel Upload tab — vendor-specific Excel import (ICL / World First) ──
-// Distinct from BulkImportTab above: that one does generic column-alias
-// guessing for any CSV/Excel/ZIP. This one implements the requirement doc's
 // dedicated ICL / World First pipeline (POST /api/shipments/import-excel),
 // including the "Forwading No" -> Tracking Number rule, duplicate skip
 // reporting, and per-row Garuda Waybill generation.
@@ -559,7 +416,7 @@ function VendorExcelImportTab() {
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function BulkUploadPage() {
   const { authFetch, token } = useAuth()
-  const [tab, setTab] = useState('scan') // 'scan' | 'import' | 'excel'
+  const [tab, setTab] = useState('scan') // 'scan' | 'excel'
   const inputRef = useRef()
   const [items,    setItems]    = useState([])
   const [scanning, setScanning] = useState(false)
@@ -657,7 +514,7 @@ export default function BulkUploadPage() {
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:16, marginBottom:20, flexWrap:'wrap' }}>
         <div>
           <h1 style={{ fontSize:24, fontWeight:800, color:'#1a0820', margin:0 }}>Bulk Upload</h1>
-          <p style={{ color:'#666', fontSize:14, marginTop:4 }}>Scan individual waybills, import a CSV/Excel/ZIP batch, or import vendor Excel shipments (ICL / World First)</p>
+          <p style={{ color:'#666', fontSize:14, marginTop:4 }}>Scan individual waybills, or import vendor Excel shipments (ICL / World First)</p>
         </div>
       </div>
 
@@ -667,17 +524,13 @@ export default function BulkUploadPage() {
           style={{ padding:'9px 20px', borderRadius:50, border:'1.5px solid', borderColor: tab==='scan'?'#7B3FAD':'#e5e7eb', backgroundColor: tab==='scan'?'#7B3FAD':'white', color: tab==='scan'?'white':'#374151', fontSize:13, fontWeight:700, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:8 }}>
           <FaCamera size={13} /> Scan Documents
         </button>
-        <button onClick={()=>setTab('import')}
-          style={{ padding:'9px 20px', borderRadius:50, border:'1.5px solid', borderColor: tab==='import'?'#7B3FAD':'#e5e7eb', backgroundColor: tab==='import'?'#7B3FAD':'white', color: tab==='import'?'white':'#374151', fontSize:13, fontWeight:700, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:8 }}>
-          <FaFolderOpen size={13} /> Import File (CSV/Excel/ZIP)
-        </button>
         <button onClick={()=>setTab('excel')}
           style={{ padding:'9px 20px', borderRadius:50, border:'1.5px solid', borderColor: tab==='excel'?'#7B3FAD':'#e5e7eb', backgroundColor: tab==='excel'?'#7B3FAD':'white', color: tab==='excel'?'white':'#374151', fontSize:13, fontWeight:700, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:8 }}>
           <FaFileExcel size={13} /> Excel Upload (ICL / World First)
         </button>
       </div>
 
-      {tab === 'excel' ? <VendorExcelImportTab /> : tab === 'import' ? <BulkImportTab /> : (
+      {tab === 'excel' ? <VendorExcelImportTab /> : (
       <>
       {/* Sub-header with counts */}
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'flex-end', gap:16, marginBottom:24, flexWrap:'wrap' }}>

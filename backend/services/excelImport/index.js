@@ -40,7 +40,7 @@ const INSERT_SHIPMENT_SQL = `
   INSERT INTO shipments (
     ge_tracking_number, vendor, carrier,
     carrier_tracking_number, awb_number, reference_number,
-    from_name, from_address, from_city, from_state, from_postal,
+    from_name, from_address, from_city, from_state, from_country, from_postal,
     to_name, to_address, to_city, to_state, to_country, to_postal,
     pieces, actual_weight, billing_weight, weight_unit, dimensions, contents,
     declared_value, currency, booking_date, ship_date, service_type, invoice_number,
@@ -49,7 +49,7 @@ const INSERT_SHIPMENT_SQL = `
   ) VALUES (
     ?,?,?,
     ?,?,?,
-    ?,?,?,?,?,
+    ?,?,?,?,?,?,
     ?,?,?,?,?,?,
     ?,?,?,?,?,?,
     ?,?,?,?,?,?,
@@ -62,7 +62,7 @@ function shipmentValues(ge, record, userId, autoTrackingEnabled) {
   return [
     ge, record.vendor, record.carrier || null, // carrier left blank here — registerForTracking() fills it in right after insert
     record.carrier_tracking_number, record.awb_number, record.reference_number,
-    record.from_name, record.from_address, record.from_city, record.from_state, record.from_postal,
+    record.from_name, record.from_address, record.from_city, record.from_state, record.from_country, record.from_postal,
     record.to_name, record.to_address, record.to_city, record.to_state, record.to_country, record.to_postal,
     record.pieces, record.actual_weight, record.billing_weight, record.weight_unit, record.dimensions, record.contents,
     record.declared_value, record.currency, record.booking_date, record.ship_date, record.service_type, record.invoice_number,

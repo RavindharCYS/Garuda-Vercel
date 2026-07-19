@@ -31,7 +31,26 @@ function mapWorldFirstRow(row) {
     content: pick(l, ['content', 'Content']),
     value: pick(l, ['Value']),
 
-    // Additional World First fields (extracted if available)
+    // Additional World First fields (extracted if available) — mirrors
+    // iclParser.js's column names, since both vendors export from the same
+    // aggregator platform template and use identical headers for these
+    // fields. These were previously missing here entirely, which meant
+    // World-First-sourced shipments had no shipper/consignee address at
+    // all — the generated Waybill's From/To boxes fell back to a sparse
+    // "name + country only" paragraph instead of the full structured
+    // address block that ICL and OCR-scanned shipments get.
+    shipper_address: pick(l, ['ShipperAddress']),
+    shipper_city: pick(l, ['ShipperCity']),
+    shipper_state: pick(l, ['ShipperState']),
+    shipper_pin: pick(l, ['Shipper_Pin']),
+    consignee_address: pick(l, ['ConsigneeAddress']),
+    consignee_city: pick(l, ['ConsigneeCity']),
+    consignee_state: pick(l, ['ConsigneeState']),
+    consignee_pin: pick(l, ['Consignee_Pin']),
+    service_name: pick(l, ['ServiceName']),
+    currency: pick(l, ['Currency_Code']),
+    invoice_number: pick(l, ['Invoice Number', 'invno']),
+
     origin: pick(l, ['Origin']),
     customer_name: pick(l, ['Customer Name']),
     mode: pick(l, ['mode', 'Mode']),

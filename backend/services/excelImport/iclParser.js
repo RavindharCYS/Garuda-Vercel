@@ -25,6 +25,11 @@ function mapICLRow(row) {
     destination_country: pick(l, ['Destination Country']),
     weight: pick(l, ['Chargeable Weight']),
     pieces: pick(l, ['Total No of Items']),
+    // "Dimensions" holds one or more "L*W*H*qty=weight" groups separated by
+    // ';' (one group per distinct box size in a multi-piece shipment) — see
+    // shipmentMapper.js#parseDimensionGroups, which parses this both to
+    // store the raw dimensions text and to cross-check/derive pieces.
+    dimensions: pick(l, ['Dimensions']),
     content: pick(l, ['Content']),
     value: pick(l, ['Shipment_Value']),
 

@@ -173,6 +173,20 @@ async function runGoogleVision(filePath) {
  * result; most callers should use `extractWaybillData` / `extractWaybillDataBatch`
  * below instead, which add the Gemini accuracy layer on top of this.
  */
+/**
+ * Sender location fallback: when neither the regex parser nor Gemini can
+ * pull a from_city/from_country off the waybill at all (rotated scan, cut-off
+ * corner, unfamiliar layout, etc.), default them to the company's own
+ * shipping origin — Chennai, India — rather than leaving the shipment record
+ * with a blank sender location. Only fills in what's actually missing; a
+ * real detected value (from either engine) always wins.
+ */
+function applyFromLocationDefaults(fields) {
+  if (!fields.from_city) fields.from_city = 'Chennai';
+  if (!fields.from_country) fields.from_country = 'India';
+  return fields;
+}
+
 async function extractWaybillDataRaw(filePath) {
   const primary = await getSetting('ocr_engine_primary', 'google_vision');
 
@@ -185,7 +199,7 @@ async function extractWaybillDataRaw(filePath) {
     }
   }
   if (!result) result = await runTesseract(filePath);
-  return { ...result, fields: normalizeCarrierSpecific(result.fields) };
+  return { ...result, fields: applyFromLocationDefaults(normalizeCarrierSpecific(result.fields)) };
 }
 
 /** Whether the Gemini enrichment layer should run, per env + an optional system_settings override. */

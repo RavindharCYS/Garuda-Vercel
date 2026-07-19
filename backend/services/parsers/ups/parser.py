@@ -19,8 +19,8 @@ import re, json, sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from parsers.base_parser import (
     BaseParser, parse_address_block, extract_lines_after, strip_trailing_metadata,
-    extract_dimensions_from_dwt, extract_ship_date,
-    extract_invoice, extract_declared_value, extract_phones,
+    extract_ship_date,
+    extract_declared_value, extract_phones,
 )
 
 
@@ -44,10 +44,8 @@ class UPSParser(BaseParser):
 
         self._tracking(text, fields)
         self._weight(text, fields)
-        self._dimensions(text, fields)
         self._ship_date(text, fields)
         self._contents(text, fields)
-        self._invoice(text, fields)
         self._declared_value(text, fields)
         self._service(text, fields)
         self._pieces(text, fields)
@@ -85,11 +83,10 @@ class UPSParser(BaseParser):
                 fields['actual_weight'] = float(m.group(1))
         fields['billing_weight'] = fields['billing_weight'] or fields['actual_weight']
 
-    # ── Dimensions ───────────────────────────────────────────────────────────
-    # UPS: "DWT: 30,28,20" (comma-separated L,W,H in cm)
-
-    def _dimensions(self, text, fields):
-        fields['dimensions'] = extract_dimensions_from_dwt(text)
+    # ── Dimensions / Invoice ─────────────────────────────────────────────────
+    # Deliberately not extracted from the waybill — OCR reads on these two
+    # fields were consistently unreliable in practice, so we leave them None
+    # (see the matching note in waybillFieldSchema.js) rather than guess.
 
     # ── Ship date ────────────────────────────────────────────────────────────
     # UPS: "DATE: 16 MAR 2026"
@@ -109,11 +106,6 @@ class UPSParser(BaseParser):
         m = re.search(r'DESC[:\s]+([A-Z][^\n]{5,80})', text, re.I)
         if m:
             fields['contents'] = m.group(1).strip()
-
-    # ── Invoice ──────────────────────────────────────────────────────────────
-
-    def _invoice(self, text, fields):
-        fields['invoice_number'] = extract_invoice(text)
 
     # ── Declared value ───────────────────────────────────────────────────────
 

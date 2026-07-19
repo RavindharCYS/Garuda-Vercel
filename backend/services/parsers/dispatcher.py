@@ -32,8 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # services/
 
 from parsers.base_parser import (
     BaseParser, blank_fields, parse_address_block,
-    extract_dimensions_from_dims, extract_dimensions_from_dwt,
-    extract_ship_date, extract_invoice, extract_declared_value,
+    extract_ship_date, extract_declared_value,
     extract_phones, extract_barcode_number, find_digit_run,
     compute_field_score, validate_fields,
 )
@@ -121,11 +120,11 @@ class GenericParser(BaseParser):
                 fields['actual_weight'] = float(m.group(1))
         fields['billing_weight'] = fields['billing_weight'] or fields['actual_weight']
 
-        # Dimensions
-        fields['dimensions'] = (
-            extract_dimensions_from_dims(text) or
-            extract_dimensions_from_dwt(text)
-        )
+        # Dimensions — deliberately NOT extracted from the waybill. OCR
+        # dimensions were consistently wrong/garbled in practice (see the
+        # matching note in waybillFieldSchema.js), so `fields['dimensions']`
+        # stays whatever blank_fields() set it to (None) rather than trying
+        # to regex it off the label.
 
         # Ship date
         fields['ship_date'] = extract_ship_date(text)
@@ -144,8 +143,8 @@ class GenericParser(BaseParser):
             if m:
                 fields['contents'] = m.group(1).strip()
 
-        # Invoice / declared value
-        fields['invoice_number'] = extract_invoice(text)
+        # Invoice # — deliberately NOT extracted from the waybill for the
+        # same reason as dimensions above; stays None.
         val, cur = extract_declared_value(text)
         if val is not None:
             fields['declared_value'] = val

@@ -196,18 +196,8 @@ function formatActualWeight(shipment) {
   return `${w} ${shipment.weight_unit || 'kg'}`;
 }
 
-function formatDimensions(shipment) {
-  if (shipment.dimensions) {
-    try {
-      const d = typeof shipment.dimensions === 'string' ? JSON.parse(shipment.dimensions) : shipment.dimensions;
-      if (d && d.l) return `${d.l} x ${d.w} x ${d.h} ${d.unit || 'cm'}`;
-    } catch (_) { /* fall through to L/W/H columns below */ }
-  }
-  if (shipment.length || shipment.width || shipment.height) {
-    return `${shipment.length || '—'} x ${shipment.width || '—'} x ${shipment.height || '—'} cm`;
-  }
-  return '—';
-}
+// NOTE: formatDimensions() was removed along with the Dimensions row above —
+// see the comment at its former call site in the detail grid.
 
 function formatDeclaredValue(shipment) {
   if (shipment.declared_value === null || shipment.declared_value === undefined || shipment.declared_value === '') return '—';
@@ -218,15 +208,17 @@ function formatDeclaredValue(shipment) {
  * Origin cell — prefers an explicit origin_code (set by the Excel/vendor
  * import pipeline), otherwise falls back to the shipper's city/country
  * (already captured on every shipment, OCR-scanned or manually entered).
- * Garuda Express ships internationally out of India, so if no country is
- * recorded at all, "India" is used rather than leaving the cell blank.
+ * Garuda Express ships internationally out of Chennai, India, so if no
+ * city/country is recorded at all, "Chennai, India" is used rather than
+ * leaving the cell blank — mirrors the same default applied to freshly
+ * OCR'd shipments in ocrService.js#applyFromLocationDefaults.
  */
 function formatOrigin(shipment) {
   const code = clean(shipment.origin_code);
   if (code) return code;
-  const city = clean(shipment.from_city);
+  const city = clean(shipment.from_city) || 'Chennai';
   const country = clean(shipment.from_country) || 'India';
-  return city ? `${city}, ${country}` : country;
+  return `${city}, ${country}`;
 }
 
 /**
@@ -373,7 +365,10 @@ async function generateWaybill(shipment, outputPath) {
       ['Ship Date', fieldLabel(shipment.ship_date)],
       ['Origin', formatOrigin(shipment)],
       ['Destination', formatDestination(shipment)],
-      ['Dimensions (L x W x H)', formatDimensions(shipment)],
+      // Dimensions intentionally omitted — OCR-read dimensions were
+      // consistently unreliable, so they're never populated from the
+      // waybill scan and shouldn't appear as a (near-always blank/"—") row
+      // on the generated Waybill either. See waybillFieldSchema.js.
       ['Actual Weight', formatActualWeight(shipment)],
       ['Declared Value', formatDeclaredValue(shipment)],
       ['Billing Type', fieldLabel(shipment.billing_type)],

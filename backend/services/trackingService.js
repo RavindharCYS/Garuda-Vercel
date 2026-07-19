@@ -41,7 +41,13 @@ const T17_BASE = 'https://api.17track.net/track/v2.4';
 // admin sets `carrier` manually without going through detection. Otherwise
 // registerForTracking() asks TrackingMore's own /detect endpoint. ───────────
 const TRACKINGMORE_SLUGS = {
-  'UPS': 'ups', 'FedEx': 'fedex', 'DHL': 'dhl-express', 'Aramex': 'aramex',
+  // NOTE: 'dhl-express' was wrong — TrackingMore's actual courier_code for
+  // DHL (per their own /carriers list and API docs) is simply 'dhl'.
+  // 'dhl-express' isn't a recognized code, so every DHL registration was
+  // silently failing `create` and falling through to the 17Track branch (or
+  // straight to the manual-tracking queue if 17Track also rejected it — see
+  // the SEVENTEENTRACK_CARRIER_NAMES fix below for why it did).
+  'UPS': 'ups', 'FedEx': 'fedex', 'DHL': 'dhl', 'Aramex': 'aramex',
   'TNT': 'tnt', 'DPD': 'dpd', 'GLS': 'gls', 'USPS': 'usps',
   'Canada Post': 'canada-post', 'Royal Mail': 'royal-mail', 'Australia Post': 'australia-post',
   'Singapore Post': 'singapore-post', 'EMS': 'china-ems', 'Yanwen': 'yanwen', 'SF Express': 'sf-express',
@@ -54,7 +60,15 @@ const TRACKINGMORE_SLUGS = {
 // ── 17Track numeric carrier code -> friendly name (the ones named in their
 // own docs — there's no single lookup endpoint for the full list). ─────────
 const SEVENTEENTRACK_CARRIER_NAMES = {
-  100002: 'UPS', 100003: 'FedEx', 7041: 'DHL', 100009: 'Aramex', 21051: 'USPS',
+  // NOTE: 7041 is actually "DHL Paket" (Germany domestic parcel), not DHL
+  // Express — 17Track's real code for international DHL Express is 100001.
+  // Registering a DHL Express AWB against 7041 gets rejected/never matches,
+  // which is why DHL shipments never got tracking data even when
+  // TrackingMore's own registration also failed. Likewise 100009 is not
+  // Aramex on 17Track — Aramex's real code is 100006; 100009 belongs to a
+  // different carrier entirely, so Aramex numbers were being registered
+  // against the wrong carrier (or rejected outright) every time.
+  100002: 'UPS', 100003: 'FedEx', 100001: 'DHL', 100006: 'Aramex', 21051: 'USPS',
   11069: 'Blue Dart', 19318: 'Delhivery', 11020: 'DTDC', 11013: 'India Post',
   3011: 'China Post', 3014: 'SF Express',
 };
@@ -92,6 +106,31 @@ function map17TrackStatus(raw) {
 }
 
 /**
+ * Collapses duplicate/near-duplicate events before they reach the frontend.
+ *
+ * The DB's unique index on (ge_tracking_number, event_timestamp, status,
+ * location) catches exact repeats, but carriers/providers routinely resend
+ * the "same" event with a sub-second timestamp difference, trailing
+ * whitespace, or a NULL location (NULL never equals NULL for a SQL UNIQUE
+ * constraint, so two NULL-location rows are never treated as duplicates) —
+ * any of which is enough to slip a visually-identical row past that index.
+ * This is a display-time backstop: two consecutive events (list is already
+ * sorted newest-first) are treated as the same event if their status text
+ * and location match and their timestamps fall in the same minute.
+ */
+function dedupeEvents(events) {
+  const out = [];
+  let prevKey = null;
+  for (const ev of events) {
+    const minute = ev.timestamp ? String(ev.timestamp).slice(0, 16) : ''; // "YYYY-MM-DDTHH:MM"
+    const key = `${minute}|${(ev.status || '').trim()}|${(ev.location || '').trim()}`;
+    if (key !== prevKey) out.push(ev);
+    prevKey = key;
+  }
+  return out;
+}
+
+/**
  * User-facing tracking read. Backend-only — never calls TrackingMore/17Track.
  * Returns the shipment's last known status plus its tracking_events history,
  * exactly as populated by the most recent webhook push (or manual refresh).
@@ -102,10 +141,11 @@ async function getStoredTracking(geNumber) {
     return { success: false, error: 'Tracking number not found in our system.', hint: 'GE numbers look like GE2847391' };
   }
 
-  const events = await db.all(`
+  const rawEvents = await db.all(`
     SELECT event_timestamp AS timestamp, status, location
     FROM tracking_events WHERE ge_tracking_number = ? ORDER BY event_timestamp DESC, id DESC
   `, [geNumber]);
+  const events = dedupeEvents(rawEvents);
 
   if (!events.length) {
     return {
@@ -212,7 +252,12 @@ async function registerForTracking(shipmentId) {
   if (process.env.TRACKINGMORE_API_KEY) {
     const start = Date.now();
     try {
-      const result = await registerWithTrackingMore(ctn, identified.carrierName, identified.courierCode);
+      // Some couriers (Aramex is the notorious one) reject `create` outright
+      // unless a destination postal code is supplied alongside the tracking
+      // number — TrackingMore's own docs call this out explicitly. We have
+      // the recipient's postal code on file already, so pass it through
+      // rather than relying on tracking_number alone.
+      const result = await registerWithTrackingMore(ctn, identified.carrierName, identified.courierCode, shipment.to_postal);
       logApiCall({ provider: 'trackingmore', endpoint: 'register', success: !!result.success, responseMs: Date.now() - start });
       if (result.success) {
         await persistRegistration(shipment, result.carrierName, result.courierCode, 'trackingmore');
@@ -268,7 +313,7 @@ async function persistRegistration(shipment, carrierName, courierCode, provider)
   `, [carrierName || null, courierCode != null ? String(courierCode) : null, provider, shipment.id]);
 }
 
-async function registerWithTrackingMore(trackingNumber, carrierName, knownCourierCode) {
+async function registerWithTrackingMore(trackingNumber, carrierName, knownCourierCode, destinationPostalCode) {
   const headers = { 'Tracking-Api-Key': process.env.TRACKINGMORE_API_KEY, 'Content-Type': 'application/json' };
   const opts = { headers, timeout: 10000, validateStatus: () => true };
 
@@ -285,8 +330,14 @@ async function registerWithTrackingMore(trackingNumber, carrierName, knownCourie
   }
   if (!courierCode) return { success: false, error: 'carrier could not be identified' };
 
-  const createResp = await axios.post(`${TM_BASE}/create`,
-    [{ tracking_number: trackingNumber, courier_code: courierCode }], opts);
+  // A handful of couriers (Aramex chief among them) require
+  // tracking_postal_code to be present or `create` rejects the number
+  // entirely — include it whenever we have it on file. Harmless to send for
+  // couriers that don't need it.
+  const payload = { tracking_number: trackingNumber, courier_code: courierCode };
+  if (destinationPostalCode) payload.tracking_postal_code = String(destinationPostalCode).trim();
+
+  const createResp = await axios.post(`${TM_BASE}/create`, [payload], opts);
   // 200 = registered now; 423 = already registered — both mean we're good.
   if (createResp.data?.code !== 200 && createResp.data?.code !== 423) {
     return { success: false, error: `create failed (code ${createResp.data?.code}: ${createResp.data?.message})` };
@@ -395,7 +446,9 @@ async function recordTrackingEvents(shipment, normalized, provider) {
     VALUES (?,?,?,?,?,?,?)
   `;
   for (const ev of (normalized.events || []).slice(0, 20)) {
-    await db.run(INSERT_SQL, [shipment.id, shipment.ge_tracking_number, ev.timestamp || null, ev.status || null, ev.location || null, provider, JSON.stringify(ev)]);
+    const status = ev.status != null ? String(ev.status).trim() : null;
+    const location = ev.location != null ? String(ev.location).trim() : null;
+    await db.run(INSERT_SQL, [shipment.id, shipment.ge_tracking_number, ev.timestamp || null, status, location, provider, JSON.stringify(ev)]);
   }
 
   const newStatus = normalized.currentStatus || null;

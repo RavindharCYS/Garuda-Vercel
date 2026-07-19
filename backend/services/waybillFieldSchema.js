@@ -30,12 +30,18 @@ const FIELD_DEFS = [
   ['actual_weight',            'NUMBER'],
   ['billing_weight',           'NUMBER'],
   ['weight_unit',              'STRING'],
-  ['dimensions',               'STRING'],
+  // NOTE: dimensions and invoice_number are deliberately NOT in this list.
+  // Both were the most common source of bad OCR reads on real waybills
+  // (garbled dimension strings, misread invoice numbers) — rather than ask
+  // Gemini/regex to keep guessing at fields it consistently gets wrong,
+  // these are simply never extracted from the waybill at all and stay null
+  // (blankFields() still defines the keys so downstream code — e.g. the
+  // Excel-import pipeline, which fills `dimensions` from its own vendor
+  // column and is unrelated to this schema — isn't affected).
   ['contents',                 'STRING'],
   ['service_type',             'STRING'],
   ['declared_value',           'NUMBER'],
   ['currency',                 'STRING'],
-  ['invoice_number',           'STRING'],
 
   // ── Garuda Master Waybill extensions ─────────────────────────────────────
   ['sender_company',           'STRING'],
@@ -71,7 +77,7 @@ const FIELD_KEYS = FIELD_DEFS.map(([k]) => k);
 const SCORABLE_FIELDS = [
   'from_name', 'from_address', 'from_city', 'from_country', 'from_postal',
   'to_name', 'to_address', 'to_city', 'to_country', 'to_postal',
-  'carrier', 'carrier_tracking_number', 'actual_weight', 'dimensions', 'contents',
+  'carrier', 'carrier_tracking_number', 'actual_weight', 'contents',
 ];
 
 // Mirrors ocr_worker.py MANDATORY_FIELDS.

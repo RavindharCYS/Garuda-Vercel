@@ -15,7 +15,7 @@ import re, json
 SCORABLE_FIELDS = [
     'from_name','from_address','from_city','from_country','from_postal',
     'to_name','to_address','to_city','to_country','to_postal',
-    'carrier','carrier_tracking_number','actual_weight','dimensions','contents',
+    'carrier','carrier_tracking_number','actual_weight','contents',
 ]
 
 MANDATORY_FIELDS = ['carrier_tracking_number', 'to_name', 'to_country']

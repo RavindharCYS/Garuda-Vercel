@@ -42,7 +42,7 @@ const INSERT_SHIPMENT_SQL = `
     carrier_tracking_number, awb_number, reference_number,
     from_name, from_address, from_city, from_state, from_postal,
     to_name, to_address, to_city, to_state, to_country, to_postal,
-    pieces, actual_weight, billing_weight, weight_unit, contents,
+    pieces, actual_weight, billing_weight, weight_unit, dimensions, contents,
     declared_value, currency, booking_date, ship_date, service_type, invoice_number,
     status, carrier_specific, auto_tracking_enabled,
     created_by, updated_at
@@ -51,7 +51,7 @@ const INSERT_SHIPMENT_SQL = `
     ?,?,?,
     ?,?,?,?,?,
     ?,?,?,?,?,?,
-    ?,?,?,?,?,
+    ?,?,?,?,?,?,
     ?,?,?,?,?,?,
     ?,?,?,
     ?, datetime('now')
@@ -64,7 +64,7 @@ function shipmentValues(ge, record, userId, autoTrackingEnabled) {
     record.carrier_tracking_number, record.awb_number, record.reference_number,
     record.from_name, record.from_address, record.from_city, record.from_state, record.from_postal,
     record.to_name, record.to_address, record.to_city, record.to_state, record.to_country, record.to_postal,
-    record.pieces, record.actual_weight, record.billing_weight, record.weight_unit, record.contents,
+    record.pieces, record.actual_weight, record.billing_weight, record.weight_unit, record.dimensions, record.contents,
     record.declared_value, record.currency, record.booking_date, record.ship_date, record.service_type, record.invoice_number,
     record.status, record.carrier_specific, autoTrackingEnabled ? 1 : 0,
     userId,

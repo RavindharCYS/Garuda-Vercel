@@ -41,35 +41,11 @@ function FieldRow({ label, value, name, onChange, editing, type='text' }) {
 // Normalizes a raw OCR `fields` payload into what the form/UI expects:
 //  - actual_weight falls back to billing_weight (and the fallback is written
 //    back into the object, so what's displayed is also what gets saved)
-//  - dimensions, which the backend sends as a JSON string like
-//    `{"L":49,"W":39,"H":23}`, becomes a human-readable "49 × 39 × 23" string
-//    so it can live in a normal editable FieldRow like everything else
 function normalizeOcrFields(raw) {
   const f = { ...raw }
 
   if ((f.actual_weight === undefined || f.actual_weight === null) && f.billing_weight != null) {
     f.actual_weight = f.billing_weight
-  }
-
-  if (f.dimensions) {
-    try {
-      let d = typeof f.dimensions === 'string' ? JSON.parse(f.dimensions) : f.dimensions
-      // Some OCR responses double-encode dimensions (a JSON string inside a JSON string)
-      if (typeof d === 'string') d = JSON.parse(d)
-
-      if (d && typeof d === 'object') {
-        // Backend has been seen sending both "L"/"W"/"H" and lowercase "l"/"w"/"h"
-        const L = d.L ?? d.l ?? d.length
-        const W = d.W ?? d.w ?? d.width
-        const H = d.H ?? d.h ?? d.height
-        if (L != null || W != null || H != null) {
-          const unit = d.unit ? ` ${d.unit}` : ''
-          f.dimensions = `${L ?? '?'} × ${W ?? '?'} × ${H ?? '?'}${unit}`
-        }
-      }
-    } catch {
-      // Not parseable JSON — leave the raw OCR string as-is rather than crash
-    }
   }
 
   return f
@@ -167,10 +143,8 @@ function FileCard({ item, onSave, onDiscard, onGenerate }) {
             <FieldRow label="Carrier"        name="carrier"                value={fields.carrier}                editing={mode==='edit'} onChange={setF} type="select" />
             <FieldRow label="Tracking #"     name="carrier_tracking_number" value={fields.carrier_tracking_number} editing={mode==='edit'} onChange={setF} />
             <FieldRow label="Weight (kg)"    name="actual_weight"          value={fields.actual_weight}          editing={mode==='edit'} onChange={setF} type="number" />
-            <FieldRow label="Dimensions (L×W×H cm)" name="dimensions"      value={fields.dimensions}             editing={mode==='edit'} onChange={setF} />
             <FieldRow label="Ship Date"      name="ship_date"              value={fields.ship_date}              editing={mode==='edit'} onChange={setF} />
             <FieldRow label="Contents"       name="contents"               value={fields.contents}               editing={mode==='edit'} onChange={setF} />
-            <FieldRow label="Invoice #"      name="invoice_number"         value={fields.invoice_number}         editing={mode==='edit'} onChange={setF} />
           </div>
         </div>
       )}

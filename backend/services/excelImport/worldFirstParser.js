@@ -25,6 +25,9 @@ function mapWorldFirstRow(row) {
     destination_country: pick(l, ['Destination Country']),
     weight: pick(l, ['Chargeable Weight']),
     pieces: pick(l, ['Total No of Items']),
+    // See iclParser.js / shipmentMapper.js#parseDimensionGroups — same
+    // "L*W*H*qty=weight[; L*W*H*qty=weight...]" format as the ICL sheet.
+    dimensions: pick(l, ['Dimensions']),
     content: pick(l, ['content', 'Content']),
     value: pick(l, ['Value']),
 

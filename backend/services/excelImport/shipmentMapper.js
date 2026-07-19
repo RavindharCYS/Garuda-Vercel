@@ -30,9 +30,47 @@ function toDate(v) {
   return s;
 }
 
+/**
+ * Parses the vendor "Dimensions" column, which packs one or more box groups
+ * into a single cell as "L*W*H*qty=weight", separated by ';' when a shipment
+ * has more than one distinct box size — e.g.:
+ *   "10.000*10.000*10.000*1=0.500"                                  -> 1 group,  1 piece
+ *   "32.000*46.000*37.000*1=11.000; 45.000*61.000*34.000*1=19.000"  -> 2 groups, 2 pieces
+ * Each group's own qty (the number right before "=") is what actually
+ * counts toward pieces, so a group written as "...*3=..." contributes 3
+ * pieces, not 1 — this sums that across all groups rather than just
+ * counting how many groups there are.
+ * Returns { groups, totalPieces } — groups is [] and totalPieces is null if
+ * the cell is empty or doesn't match the expected shape at all (so callers
+ * can fall back to whatever pieces value the sheet's own pieces column gave
+ * them instead of overwriting it with a wrong number).
+ */
+function parseDimensionGroups(raw) {
+  if (!raw) return { groups: [], totalPieces: null };
+  const groupPattern = /([\d.]+)\s*\*\s*([\d.]+)\s*\*\s*([\d.]+)\s*\*\s*(\d+)\s*=\s*([\d.]+)/g;
+  const groups = [];
+  let match;
+  while ((match = groupPattern.exec(String(raw))) !== null) {
+    const [, length, width, height, qty, weight] = match;
+    groups.push({
+      length: parseFloat(length), width: parseFloat(width), height: parseFloat(height),
+      qty: parseInt(qty, 10), weight: parseFloat(weight),
+    });
+  }
+  if (!groups.length) return { groups: [], totalPieces: null };
+  const totalPieces = groups.reduce((sum, g) => sum + (Number.isFinite(g.qty) ? g.qty : 0), 0);
+  return { groups, totalPieces: totalPieces || null };
+}
+
 /** Converts a normalized vendor row (from iclParser/worldFirstParser) into a Garuda shipment record. */
 function toShipmentRecord(n) {
   const weight = toNumber(n.weight);
+  const { totalPieces } = parseDimensionGroups(n.dimensions);
+  // Prefer the sheet's own pieces column when it's present (it's the
+  // vendor's own count and may legitimately differ from what the raw
+  // dimension groups imply); only fall back to the dimensions-derived count
+  // when that column is missing/blank, and only default to 1 as a last resort.
+  const pieces = toNumber(n.pieces) || totalPieces || 1;
 
   return {
     // NOTE: `vendor` (ICL / World First) is who supplied this shipment data —
@@ -58,10 +96,11 @@ function toShipmentRecord(n) {
     to_postal: clean(n.consignee_pin),
     to_country: clean(n.destination_country),
 
-    pieces: toNumber(n.pieces) || 1,
+    pieces,
     actual_weight: weight,
     billing_weight: weight,
     weight_unit: 'kg',
+    dimensions: clean(n.dimensions),
     contents: clean(n.content),
 
     declared_value: toNumber(n.value),
@@ -92,4 +131,4 @@ function toShipmentRecord(n) {
   };
 }
 
-module.exports = { toShipmentRecord, clean, toNumber, toDate };
+module.exports = { toShipmentRecord, clean, toNumber, toDate, parseDimensionGroups };

@@ -1,6 +1,6 @@
 // src/pages/SettingsPage.jsx
 import React, { useState, useEffect } from 'react'
-import { FaArrowRotateRight, FaArrowRight, FaCheck, FaTriangleExclamation, FaSatelliteDish, FaBoxArchive, FaBell, FaCircleDot, FaCopy } from 'react-icons/fa6'
+import { FaArrowRotateRight, FaArrowRight, FaCheck, FaTriangleExclamation, FaSatelliteDish, FaBoxArchive, FaBell, FaCircleDot, FaCopy, FaDownload, FaTrash } from 'react-icons/fa6'
 import AdminLayout from '../components/AdminLayout.jsx'
 import ConfirmModal from '../components/ConfirmModal.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -49,6 +49,12 @@ export default function SettingsPage() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [retentionWarning, setRetentionWarning] = useState(null)
   const [apiUsage, setApiUsage] = useState(null)
+  const [exporting, setExporting] = useState(false)
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
+  const [deleteAllResult, setDeleteAllResult] = useState(null)
+  const [deleteAllError, setDeleteAllError] = useState(null)
+  const DELETE_ALL_PHRASE = 'DELETE ALL DATA'
 
   const load = () => {
     setLoading(true)
@@ -88,6 +94,50 @@ export default function SettingsPage() {
   const acknowledgeRetentionWarning = async () => {
     await authFetch('/api/admin/retention-warning?ack=1')
     setRetentionWarning(null)
+  }
+
+  // ── Danger Zone: Export Data ────────────────────────────────────────────
+  const exportData = async () => {
+    setExporting(true)
+    try {
+      const res = await authFetch('/api/admin/export-data')
+      if (!res.ok) throw new Error('Export failed')
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const stamp = new Date().toISOString().slice(0, 10)
+      a.href = url
+      a.download = `garuda-express-export-${stamp}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      alert('Export failed: ' + err.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  // ── Danger Zone: Delete All Data ────────────────────────────────────────
+  const requestDeleteAll = () => { setDeleteAllError(null); setDeleteAllResult(null); setDeleteAllOpen(true) }
+
+  const confirmDeleteAll = async () => {
+    setDeletingAll(true); setDeleteAllError(null)
+    try {
+      const res = await authFetch('/api/admin/delete-all-data', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: DELETE_ALL_PHRASE }),
+      })
+      const data = await res.json()
+      if (!data.success) throw new Error(data.error || 'Delete failed')
+      setDeleteAllOpen(false)
+      setDeleteAllResult(data)
+    } catch (err) {
+      setDeleteAllError(err.message)
+    } finally {
+      setDeletingAll(false)
+    }
   }
 
   const inp = { width:'100%', border:'1.5px solid #e5e7eb', borderRadius:10, padding:'10px 14px', fontSize:14, outline:'none', boxSizing:'border-box', backgroundColor:'white' }
@@ -226,6 +276,42 @@ export default function SettingsPage() {
         </SectionCard>
       </div>
 
+      {/* Danger Zone — destructive, admin-only actions */}
+      <div style={{ marginTop:20, backgroundColor:'white', borderRadius:20, padding:24, border:'1.5px solid #fecaca' }}>
+        <h2 style={{ fontSize:14, fontWeight:700, color:'#991b1b', marginBottom:6, display:'flex', alignItems:'center', gap:8 }}>
+          <FaTriangleExclamation size={13} color="#dc2626" /> Danger Zone
+        </h2>
+        <p style={{ fontSize:13, color:'#766D82', marginBottom:18 }}>
+          Export or permanently delete all shipment and operational data. User accounts, roles, carrier
+          configuration, and the settings above are not affected by either action.
+        </p>
+
+        <div style={{ display:'flex', flexWrap:'wrap', gap:12, alignItems:'center' }}>
+          <button onClick={exportData} disabled={exporting}
+            style={{ padding:'11px 22px', borderRadius:12, border:'1.5px solid #7B3FAD', backgroundColor:'white', color:'#7B3FAD',
+              fontSize:13, fontWeight:700, cursor: exporting ? 'not-allowed' : 'pointer', opacity: exporting ? 0.6 : 1,
+              display:'inline-flex', alignItems:'center', gap:8 }}>
+            <FaDownload size={12} /> {exporting ? 'Exporting…' : 'Export Data'}
+          </button>
+
+          <button onClick={requestDeleteAll}
+            style={{ padding:'11px 22px', borderRadius:12, border:'none', color:'white',
+              background:'linear-gradient(135deg,#dc2626,#b91c1c)', fontSize:13, fontWeight:700, cursor:'pointer',
+              display:'inline-flex', alignItems:'center', gap:8 }}>
+            <FaTrash size={12} /> Delete All Data
+          </button>
+
+          {deleteAllResult && (
+            <span style={{ color:'#059669', fontSize:12, fontWeight:700, display:'inline-flex', alignItems:'center', gap:6 }}>
+              <FaCheck size={11} /> All data deleted
+            </span>
+          )}
+        </div>
+        {deleteAllError && (
+          <p style={{ color:'#dc2626', fontSize:12, fontWeight:600, marginTop:12, marginBottom:0 }}>{deleteAllError}</p>
+        )}
+      </div>
+
       <div style={{ marginTop:24, display:'flex', alignItems:'center', gap:12 }}>
         <button onClick={requestSave} disabled={saving}
           style={{ padding:'12px 28px', background:'linear-gradient(135deg,#7B3FAD,#5B2D8B)', color:'white', border:'none', borderRadius:12, fontSize:14, fontWeight:700, cursor:saving?'not-allowed':'pointer', opacity:saving?0.7:1 }}>
@@ -241,6 +327,17 @@ export default function SettingsPage() {
         confirmLabel="Save Changes"
         onConfirm={confirmSave}
         onCancel={() => setConfirmOpen(false)}
+      />
+
+      <ConfirmModal
+        open={deleteAllOpen}
+        title="Delete all data?"
+        message={`This permanently deletes every shipment, tracking event, notification, bulk-upload record, and API/audit log entry — with no way to undo it. Export a backup first if you might need this data later.\n\nUser accounts, roles, carrier configuration, and system settings are not affected.`}
+        confirmLabel={deletingAll ? 'Deleting…' : 'Delete All Data'}
+        danger
+        confirmPhrase={DELETE_ALL_PHRASE}
+        onConfirm={confirmDeleteAll}
+        onCancel={() => setDeleteAllOpen(false)}
       />
 
       <style>{`.settings-grid{grid-template-columns:1fr!important} @media(min-width:900px){.settings-grid{grid-template-columns:1fr 1fr!important}}`}</style>

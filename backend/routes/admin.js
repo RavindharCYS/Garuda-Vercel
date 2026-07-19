@@ -364,4 +364,112 @@ router.delete('/cache/:geNumber', async (req, res) => {
   res.json({ success: true, message: 'Cache cleared' });
 });
 
+// ── GET /api/admin/export-data — full operational-data export (Settings → Danger Zone) ──
+// Exports every shipment and everything derived from it — the shipments
+// themselves plus tracking history/cache, bulk-upload jobs/records,
+// notifications, API call logs, and the audit log — as one multi-sheet
+// Excel workbook. Deliberately does NOT include users/roles/permissions/
+// carriers/system_settings: those are app configuration, not "data" in the
+// sense an admin means by "export everything," and users especially
+// shouldn't leave the server (password hashes) even redacted by accident.
+const EXPORTABLE_TABLES = [
+  ['Shipments',           'shipments'],
+  ['TrackingEvents',      'tracking_events'],
+  ['TrackingCache',       'tracking_cache'],
+  ['Notifications',       'notifications'],
+  ['BulkUploadJobs',      'bulk_upload_jobs'],
+  ['BulkUploadRecords',   'bulk_upload_records'],
+  ['ShipmentDocuments',   'shipment_documents'],
+  ['ShipmentBackups',     'shipment_backups'],
+  ['ApiLogs',             'api_logs'],
+  ['AuditLog',            'audit_log'],
+];
+
+router.get('/export-data', async (req, res) => {
+  const wb = XLSX.utils.book_new();
+
+  for (const [sheetName, table] of EXPORTABLE_TABLES) {
+    let rows = [];
+    try {
+      rows = await db.all(`SELECT * FROM ${table}`);
+    } catch (err) {
+      logger.warn(`export-data: skipping table "${table}"`, { error: err.message });
+      continue;
+    }
+    // A completely empty table would otherwise produce a sheet with no
+    // header row at all (json_to_sheet needs at least one object to infer
+    // columns) — give it a single placeholder row instead so the sheet
+    // still opens cleanly and makes clear the table was empty.
+    const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ note: 'No rows' }]);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31)); // Excel sheet-name limit
+  }
+
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const stamp = new Date().toISOString().slice(0, 10);
+
+  logAudit(req, { action: 'EXPORT_ALL_DATA', entity: 'database', details: `tables=${EXPORTABLE_TABLES.length}`, actor: req.user });
+
+  res.setHeader('Content-Disposition', `attachment; filename="garuda-express-export-${stamp}.xlsx"`);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.send(buf);
+});
+
+// ── POST /api/admin/delete-all-data — wipe all operational data ──────────────
+// Same table scope as the export above (business/shipment data only — never
+// users/roles/permissions/carriers/system_settings, so nobody gets locked
+// out and the app stays configured/usable immediately after). Requires the
+// exact confirmation phrase in the body as a server-side backstop — the
+// frontend's GitHub-style "type to confirm" modal is the primary guard, but
+// this endpoint doesn't trust the client alone for something this
+// destructive.
+const DELETE_ALL_CONFIRM_PHRASE = 'DELETE ALL DATA';
+
+// Children first, in FK-safe order, so this works whether or not a given
+// table's foreign key actually cascades.
+const DELETE_ALL_TABLES_IN_ORDER = [
+  'shipment_documents',
+  'shipment_backups',
+  'tracking_events',
+  'tracking_cache',
+  'notifications',
+  'bulk_upload_records',
+  'bulk_upload_jobs',
+  'api_logs',
+  'shipments',
+];
+
+router.post('/delete-all-data', async (req, res) => {
+  const { confirm } = req.body || {};
+  if (confirm !== DELETE_ALL_CONFIRM_PHRASE) {
+    return res.status(400).json({ success: false, error: `Type "${DELETE_ALL_CONFIRM_PHRASE}" exactly to confirm.` });
+  }
+
+  const counts = {};
+  for (const table of DELETE_ALL_TABLES_IN_ORDER) {
+    try {
+      const before = await db.get(`SELECT COUNT(*) AS c FROM ${table}`);
+      counts[table] = before?.c ?? 0;
+      await db.run(`DELETE FROM ${table}`);
+    } catch (err) {
+      logger.error(`delete-all-data: failed clearing "${table}"`, { error: err.message });
+      return res.status(500).json({ success: false, error: `Failed while clearing "${table}": ${err.message}`, partialCounts: counts });
+    }
+  }
+
+  // Audit log is wiped last, and deliberately AFTER everything else — this
+  // way the very next (and only) row in it is the record of this action
+  // itself, rather than losing that trail along with the rest.
+  const auditCountRow = await db.get('SELECT COUNT(*) AS c FROM audit_log');
+  counts.audit_log = auditCountRow?.c ?? 0;
+  await db.run('DELETE FROM audit_log');
+
+  logAudit(req, {
+    action: 'DELETE_ALL_DATA', entity: 'database', status: 'success',
+    details: `Cleared all operational data. Row counts: ${JSON.stringify(counts)}`,
+    actor: req.user,
+  });
+
+  res.json({ success: true, message: 'All shipment and operational data has been deleted.', counts });
+});
+
 module.exports = router;

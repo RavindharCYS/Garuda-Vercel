@@ -89,6 +89,28 @@ function GlobalEnhancements() {
       .sticky-cta { display: none; }
       .pulse-dot { animation: pulseDot 2s ease-in-out infinite; }
 
+      /* Desktop floating Call/WhatsApp buttons — mirror image of .sticky-cta:
+         hidden on mobile (the sticky bar covers that case instead), visible
+         from tablet width up. Icon-only by default; hovering expands the
+         pill to reveal the label, rather than showing text all the time. */
+      .desktop-fab-group { display: none; }
+      @media (min-width: 641px) {
+        .desktop-fab-group { display: flex !important; }
+      }
+      .desktop-fab {
+        display: flex; align-items: center; height: 48px; border-radius: 24px;
+        text-decoration: none; color: white; overflow: hidden;
+        width: 48px; box-shadow: 0 8px 20px rgba(0,0,0,0.22);
+        transition: width 0.3s cubic-bezier(.34,1.56,.64,1), box-shadow 0.25s ease;
+      }
+      .desktop-fab:hover { width: 152px; box-shadow: 0 12px 28px rgba(0,0,0,0.3); }
+      .desktop-fab-icon { flex-shrink: 0; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; }
+      .desktop-fab-label {
+        white-space: nowrap; font-size: 13px; font-weight: 800; opacity: 0; transition: opacity 0.2s ease 0.05s;
+        margin-right: 16px;
+      }
+      .desktop-fab:hover .desktop-fab-label { opacity: 1; }
+
       /* Icon-badge micro-interactions */
       .icon-badge { transition: transform 0.45s cubic-bezier(.34,1.56,.64,1), box-shadow 0.35s ease; }
       .service-card:hover .icon-badge { transform: scale(1.12) rotate(-8deg); box-shadow: 0 12px 26px rgba(123,63,173,0.28); }
@@ -150,7 +172,7 @@ function GlobalEnhancements() {
         .process-grid { grid-template-columns: 1fr !important; gap: 40px !important; }
         .process-icon { width: 56px !important; height: 56px !important; }
         .back-to-top { bottom: 80px !important; right: 16px !important; }
-        .mobile-bottom-spacer { height: 64px !important; }
+        .mobile-bottom-spacer { height: calc(60px + env(safe-area-inset-bottom, 0px)) !important; }
       }
 
       @media (max-width: 640px) {
@@ -803,6 +825,26 @@ function StickyMobileCTA() {
   )
 }
 
+// ── Desktop floating Call/WhatsApp buttons ────────────────────────────────────
+// The mobile sticky bar (StickyMobileCTA above) is hidden above 640px, which
+// previously meant there was no Call/WhatsApp affordance on desktop at all.
+// This is its desktop equivalent: two round buttons stacked above BackToTop
+// that expand to show their label on hover.
+function DesktopFloatingCTA() {
+  return (
+    <div className="desktop-fab-group" style={{ position:'fixed', right:24, bottom:88, zIndex:50, flexDirection:'column', gap:12 }}>
+      <a href="https://wa.me/918122257307" target="_blank" rel="noreferrer" className="desktop-fab" style={{ backgroundColor:'#1f9d52' }} aria-label="Chat on WhatsApp">
+        <span className="desktop-fab-icon"><FaWhatsapp size={20} /></span>
+        <span className="desktop-fab-label">WhatsApp</span>
+      </a>
+      <a href="tel:+918122257307" className="desktop-fab" style={{ background:'linear-gradient(135deg,#7B3FAD,#5B2D8B)' }} aria-label="Call us">
+        <span className="desktop-fab-icon"><FaPhone size={18} /></span>
+        <span className="desktop-fab-label">Call Now</span>
+      </a>
+    </div>
+  )
+}
+
 export default function HomePage() {
   return (
     <>
@@ -819,11 +861,16 @@ export default function HomePage() {
         <FAQSection />
         <CTASection />
         <LocationSection />
-        <div className="mobile-bottom-spacer" style={{ height:0 }} />
       </main>
       <Footer />
+      {/* Reserves room below the Footer for the fixed sticky-cta bar on
+          mobile — must come AFTER Footer (not before, inside <main>) since
+          the bar overlaps whatever is physically last in the document, not
+          wherever this spacer used to sit higher up the page. */}
+      <div className="mobile-bottom-spacer" />
       <BackToTop />
       <StickyMobileCTA />
+      <DesktopFloatingCTA />
     </>
   )
 }

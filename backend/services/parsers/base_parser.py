@@ -293,6 +293,12 @@ _CITY_STATE_COUNTRIES = {'SINGAPORE', 'MONACO', 'HONG KONG'}
 # whitespace-based patterns.
 _HYPHEN_CITY_STATE_POSTAL_RE = re.compile(r'^([A-Za-z][A-Za-z .]*?)-([A-Z]{2})-(\d{4,6})$')
 
+# Indian postal code immediately followed by the city name on the same
+# line, with nothing else — e.g. "600099 TIRUVALLUR". See the matching
+# comment in _extract_postal_city_state for why this needs its own check
+# rather than relying on the GENERIC pattern below.
+_POSTAL_CITY_ADJACENT_RE = re.compile(r'^(\d{4,6})\s+([A-Za-z][A-Za-z\s]{1,40})$')
+
 
 def _extract_postal_city_state(block):
     block_lines = block.split('\n')
@@ -302,6 +308,23 @@ def _extract_postal_city_state(block):
         if hm:
             return hm.group(3), hm.group(1).strip().title(), hm.group(2).upper()
 
+    # Indian addresses are frequently printed as "<postal> <CITY>" on one
+    # line with no comma/separator (e.g. DHL WPX labels: "600099
+    # TIRUVALLUR"). Confirmed bug: the GENERIC pattern below has a
+    # trailing `[A-Z]*` clause that greedily swallows the city text INTO
+    # its own match (rather than leaving it in the "prefix" the
+    # city-derivation logic further down reads from), so this exact,
+    # extremely common format was silently losing its city every time —
+    # postal came back fine, city stayed null. Checked first, as its own
+    # dedicated case, rather than trying to constrain the GENERIC regex
+    # (which other, working call sites may depend on matching loosely).
+    for line in block_lines:
+        s = line.strip()
+        pm = _POSTAL_CITY_ADJACENT_RE.match(s)
+        if (pm and not STREET_SUFFIX_RE.search(pm.group(2))
+                and not _FORM_LABEL_NOISE_RE.search(pm.group(2))):
+            return pm.group(1), pm.group(2).strip().title(), None
+
     for kind, pat in POSTAL_PATTERNS:
         candidates = []  # (postal, city, state, is_strong)
         for idx, line in enumerate(block_lines):
@@ -310,8 +333,29 @@ def _extract_postal_city_state(block):
                 continue
             postal = (m.group(1) + ' ' + m.group(2)).strip() if kind in ('CA', 'UK', 'IE') else m.group(1)
             prefix = line[:m.start()].strip(' ,.')
+            suffix = line[m.end():].strip(' ,.-')
             words = [w for w in re.split(r'[,\s]+', prefix) if w]
             city, state, strong = None, None, False
+
+            # A city name sitting immediately AFTER the matched postal code
+            # on the same line, with nothing else on the line (e.g. a
+            # Canadian postal code repeated next to its city on a
+            # "V3X 3P9 SURREY"-style summary line) is just as reliable a
+            # signal as the more common "prefix" case below, and — unlike
+            # the prefix case — the actual value sitting there hasn't been
+            # split/mangled by anything, so it's treated as a *strong*
+            # match (preferred over a same-block but weaker prefix-based
+            # candidate found on a different line; see the real
+            # "PARAMATTA, NSW - 2150" vs "2150 PARAMATTA" case this
+            # resolves in favor of the latter, cleaner reading).
+            if (suffix and not prefix and not words
+                    and re.match(r'^[A-Za-z][A-Za-z\s]{1,40}$', suffix)
+                    and not STREET_SUFFIX_RE.search(suffix)
+                    and not _FORM_LABEL_NOISE_RE.search(suffix)
+                    and not pat.search(suffix)):
+                candidates.append((postal, suffix.title(), None, True))
+                continue
+
             if len(words) >= 2:
                 state = words[-1]
                 city = ' '.join(words[:-1])

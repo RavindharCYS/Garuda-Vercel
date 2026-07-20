@@ -109,13 +109,31 @@ class DHLParser(BaseParser):
         fields['ship_date'] = extract_ship_date(text)
 
     # ── Contents ─────────────────────────────────────────────────────────────
-    # DHL: "Content Description: Documents - general business"
-    # or  "Content Description: Sample Matching to WM N 12956 ..."
+    # Confirmed bug: real DHL WPX labels print this as "Contents: X" (or
+    # "Contents:X" with no space) — never "Content Description:", which is
+    # what this previously required, so it always came back null. Some
+    # samples also wrap onto a second line right after the value (e.g.
+    # "Contents:DUHAIR 3 TAB,\n" continuing on the next real text line with
+    # more of the description before the next label starts) — captured too,
+    # as long as that next line doesn't look like the start of a new label.
 
     def _contents(self, text, fields):
-        m = re.search(r'Content\s*Description[:\s]+([^\n]{3,100})', text, re.I)
-        if m:
-            fields['contents'] = m.group(1).strip()
+        m = re.search(r'Content(?:s|\s*Description)?\s*:\s*([^\n]{2,100})', text, re.I)
+        if not m:
+            return
+        first = m.group(1).strip().rstrip(',').strip()
+        parts = [first] if first else []
+        rest = text[m.end():]
+        nl = rest.find('\n')
+        if nl != -1:
+            nxt = rest[:nl].strip()
+            if nxt and not re.match(
+                    r'^(Shipper|Receiver|WAYBILL|Ref\d?\s*:|Custom|Payment|Product|'
+                    r'FRT|Duty|DHL|INCOTERM|Features|\*)',
+                    nxt, re.I):
+                parts.append(nxt.rstrip(',').strip())
+        if parts:
+            fields['contents'] = ' '.join(parts).strip()
 
     # ── Invoice # ────────────────────────────────────────────────────────────
     # Deliberately not extracted from the waybill — OCR reads on this field
@@ -123,7 +141,17 @@ class DHLParser(BaseParser):
     # waybillFieldSchema.js), so we leave it None rather than guess.
 
     def _declared_value(self, text, fields):
-        # DHL sometimes writes "Declared Value=4280 INR"
+        # Confirmed bug: real DHL WPX labels print this as
+        # "Custom Val: 24751.33 INR" (only on the "ARCHIVE DOC" page — the
+        # front WAYBILL page doesn't show a value at all) — never
+        # "Declared Value=", which is what this previously required, so it
+        # always came back null on every real sample checked.
+        m = re.search(r'Custom\s*Val\s*:?\s*([0-9,]+\.?[0-9]*)\s*(INR|USD|GBP|EUR|AUD|CAD|SGD|AED)?', text, re.I)
+        if m:
+            fields['declared_value'] = float(m.group(1).replace(',', ''))
+            fields['currency'] = (m.group(2) or 'INR').upper()
+            return
+        # DHL sometimes writes "Declared Value=4280 INR" on other label variants
         m = re.search(r'Declared\s*Value\s*=\s*([0-9,\.]+)\s*(INR|USD|GBP|EUR|AUD|CAD|SGD)?', text, re.I)
         if m:
             fields['declared_value'] = float(m.group(1).replace(',', ''))

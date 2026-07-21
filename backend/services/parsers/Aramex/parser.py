@@ -302,31 +302,27 @@ class AramexParser(BaseParser):
         # their native PDF text layer in an order that scrambles the
         # visual layout — neither the structured "1 FROM (SHIPPER)/2 TO
         # (RECEIVER)" grid regex below nor the flat "KIND ATTN"-anchored
-        # fallback ever matches either one, because those literal anchor
-        # strings simply aren't present in the extracted text at all.
-        # Confirmed against real samples of both formats (see each
-        # method's own docstring) — route to a dedicated, position-based
-        # extractor for whichever one this is, and only fall through to
-        # the original generic block-extraction path (still needed for
-        # samples that DO have real "1 FROM"/"KIND ATTN" markers) when
-        # neither scrambled format is detected.
+        # fallback reliably matches either one on the real text (those
+        # literal anchor strings may not survive extraction at all, or —
+        # on some real samples — appear out of their expected context,
+        # which previously caused a text-content sniff here to wrongly
+        # skip straight to the old path). Attempt the dedicated,
+        # position-based extractor for each format unconditionally: both
+        # require finding an actual barcode-wrapped AWB number before
+        # they touch any fields, so there's no real risk in trying first —
+        # only fall through to the original generic block-extraction path
+        # (still needed for any sample that's neither of these two) when
+        # neither one finds what it needs.
         if self._parse_scrambled_thermal_label(text, fields):
             pass
+        elif self._parse_scrambled_classic_awb(text, fields):
+            pass
         else:
-            upper = text.upper()
-            is_scrambled_classic = (
-                '1 FROM' not in upper and 'FROM (SHIPPER)' not in upper
-                and 'KIND ATTN' not in upper
-                and extract_barcode_number(text)
-            )
-            if is_scrambled_classic and self._parse_scrambled_classic_awb(text, fields):
-                pass
-            else:
-                from_block = self._extract_from_block(text)
-                to_block = self._extract_to_block(text)
-                from_block, to_block = self._addresses(from_block, to_block, fields)
-                self._recover_scattered_fields(text, fields)
-                self._phones(text, from_block, to_block, fields)
+            from_block = self._extract_from_block(text)
+            to_block = self._extract_to_block(text)
+            from_block, to_block = self._addresses(from_block, to_block, fields)
+            self._recover_scattered_fields(text, fields)
+            self._phones(text, from_block, to_block, fields)
 
         self._extract_countries_from_barcode_block(text, fields)
         self._apply_gulf_destination_fallback(fields)
@@ -380,6 +376,23 @@ class AramexParser(BaseParser):
         def at(offset):
             i = barcode_idx + offset
             return lines[i] if 0 <= i < len(lines) else None
+
+        # A barcode alone isn't a reliable enough signal that this is the
+        # scrambled classic-AWB layout — a genuinely structured "1 FROM
+        # (SHIPPER)/2 TO (RECEIVER)" document has a barcode too, and
+        # confirmed regression-tested: without this check, this method
+        # was misfiring on that layout and overwriting its correctly
+        # BEFORE-extracted from_name/to_name with garbage, since a
+        # structured sample's barcode is followed by "EXP PPX <value>"
+        # rather than this layout's own distinctive
+        # "<from_country>\n<to_country>\n<origin> <dest>" — checked here
+        # as a strong, specific positive signature before touching any
+        # fields at all.
+        c1, c2, codes = at(1), at(2), at(3)
+        if not (c1 and self._detect_country_local(c1)
+                and c2 and self._detect_country_local(c2)
+                and codes and re.match(r'^[A-Z]{3}\s+[A-Z]{3}$', codes)):
+            return False
 
         def split_city_state(line):
             if not line:
@@ -892,11 +905,24 @@ class AramexParser(BaseParser):
         they sit well past the KIND-ATTN-anchored fallback's window.
         Only fills fields that are still empty; never overwrites a value
         the normal extraction already found.
+
+        Confirmed bug: without a "KIND ATTN" anchor to work from (not
+        every real sample has one — see the classic-AWB scrambled layout
+        this file also handles), `anchor` fell back to the midpoint of
+        the ENTIRE text — and since the "CONDITIONS OF CARRIAGE" legal
+        boilerplate runs to several thousand characters (dwarfing the
+        actual shipment-data portion), that midpoint lands deep inside
+        the legal text on most real samples. The generic label patterns
+        below then matched clause fragments there and handed them back as
+        from_name/to_city/etc. Restricted to _pre_legal_text() so the
+        legal section is never a match target here, regardless of where
+        the anchor ends up.
         """
-        anchor_m = re.search(r'KIND\s*ATTN', text, re.I)
-        anchor = anchor_m.start() if anchor_m else len(text) // 2
+        pre_legal = _pre_legal_text(text)
+        anchor_m = re.search(r'KIND\s*ATTN', pre_legal, re.I)
+        anchor = anchor_m.start() if anchor_m else len(pre_legal) // 2
         for key, pat in _GLOBAL_LABEL_VALUE_PATTERNS.items():
-            for m in pat.finditer(text):
+            for m in pat.finditer(pre_legal):
                 val = m.group(1).strip().split('\n')[0].strip()
                 val = re.sub(r'\s{2,}.*$', '', val).strip()  # drop trailing bled-in columns
                 if not val or len(val) < 2:
@@ -961,7 +987,17 @@ class AramexParser(BaseParser):
         # the receiver section (confirmed on a real sample where the
         # receiver's company name read out BEFORE "KIND ATTN" in OCR
         # order), which would otherwise bleed straight into this block.
-        m = re.search(r'^(.*?)(?=KIND\s*ATTN|\*\d{8,14}\*|\d\s*TO\s*\(RECEIVER\))', text, re.S | re.I)
+        #
+        # Confirmed bug: when NONE of those three stop-patterns appear
+        # early (or at all) in the text, `.*?` has nothing to lazily stop
+        # at and keeps expanding — on a real sample that landed deep
+        # inside the "CONDITIONS OF CARRIAGE" legal boilerplate, and the
+        # line-sorting below then handed back legal-text sentences as
+        # from_name/from_city (several ALL-CAPS-opening clause fragments
+        # happened to look "name-like" to the caps-heuristic sort). Search
+        # within _pre_legal_text() so that section can never be a match
+        # target here, regardless of why the earlier stop-patterns missed.
+        m = re.search(r'^(.*?)(?=KIND\s*ATTN|\*\d{8,14}\*|\d\s*TO\s*\(RECEIVER\))', _pre_legal_text(text), re.S | re.I)
         if m:
             raw = m.group(1).strip()
             lines = [
@@ -1066,12 +1102,18 @@ class AramexParser(BaseParser):
         # sender, phones[1]=receiver" index (the repeat just shifts
         # everything by one rather than ever reaching the other party's
         # number).
+        #
+        # Restricted to _pre_legal_text() — same reasoning as
+        # _recover_scattered_fields above: without a "KIND ATTN" anchor,
+        # this fell back to the whole-document midpoint, which on a
+        # long-legal-boilerplate sample sits inside that boilerplate.
         if not fields['from_contact'] or not fields['to_contact']:
-            anchor_m = re.search(r'KIND\s*ATTN', text, re.I)
-            anchor = anchor_m.start() if anchor_m else len(text) // 2
+            pre_legal = _pre_legal_text(text)
+            anchor_m = re.search(r'KIND\s*ATTN', pre_legal, re.I)
+            anchor = anchor_m.start() if anchor_m else len(pre_legal) // 2
             seen = set()
             before, after = None, None
-            for phone, pos in extract_phones_with_positions(text):
+            for phone, pos in extract_phones_with_positions(pre_legal):
                 if phone in seen:
                     continue
                 seen.add(phone)

@@ -373,26 +373,61 @@ class AramexParser(BaseParser):
         if barcode_idx is None:
             return False
 
-        def at(offset):
-            i = barcode_idx + offset
-            return lines[i] if 0 <= i < len(lines) else None
-
-        # A barcode alone isn't a reliable enough signal that this is the
-        # scrambled classic-AWB layout — a genuinely structured "1 FROM
-        # (SHIPPER)/2 TO (RECEIVER)" document has a barcode too, and
-        # confirmed regression-tested: without this check, this method
-        # was misfiring on that layout and overwriting its correctly
-        # BEFORE-extracted from_name/to_name with garbage, since a
-        # structured sample's barcode is followed by "EXP PPX <value>"
-        # rather than this layout's own distinctive
-        # "<from_country>\n<to_country>\n<origin> <dest>" — checked here
-        # as a strong, specific positive signature before touching any
-        # fields at all.
-        c1, c2, codes = at(1), at(2), at(3)
-        if not (c1 and self._detect_country_local(c1)
-                and c2 and self._detect_country_local(c2)
-                and codes and re.match(r'^[A-Z]{3}\s+[A-Z]{3}$', codes)):
+        # The origin/destination airport-code-pair line ("MAA JFK") is
+        # this layout's single most distinctive, reliable signature — a
+        # genuinely structured "1 FROM (SHIPPER)/2 TO (RECEIVER)"
+        # document's barcode is followed by "EXP PPX <value>...", never a
+        # bare "XXX YYY" line — so its presence within a few lines after
+        # the barcode is both the entry gate for this whole method AND,
+        # by anchoring every other lookup below to its ACTUAL found
+        # position rather than an assumed fixed offset from the barcode,
+        # what makes this tolerant of a given document having one or two
+        # extra/missing lines around the barcode itself.
+        #
+        # Confirmed bug: a bare "[A-Z]{3}\s+[A-Z]{3}" pattern also matches
+        # this layout's OWN "EXP PPX" service-type line, and the
+        # structured-grid regression sample's "EXP PPX" line right after
+        # ITS barcode was matching too — letting that document slip
+        # through this method's gate. Excluded here by name.
+        _NOT_AIRPORT_CODE = {'EXP', 'STD', 'PPX', 'DOM', 'NSR', 'CVG', 'INT'}
+        codes_re = re.compile(r'^([A-Z]{3})\s+([A-Z]{3})$')
+        codes_idx = None
+        for i in range(barcode_idx + 1, min(barcode_idx + 8, len(lines))):
+            cm = codes_re.match(lines[i])
+            if cm and cm.group(1) not in _NOT_AIRPORT_CODE and cm.group(2) not in _NOT_AIRPORT_CODE:
+                codes_idx = i
+                break
+        if codes_idx is None:
             return False
+
+        def near(offset, validator, window=2):
+            """Checks `offset` first, then progressively further offsets
+            on both sides (offset±1, offset±2, ...) up to `window`,
+            returning the first line where `validator(line)` is truthy —
+            or None if nothing in range qualifies."""
+            for d in range(window + 1):
+                for cand in ({offset - d, offset + d} if d else {offset}):
+                    i = codes_idx + cand
+                    if 0 <= i < len(lines) and validator(lines[i]):
+                        return lines[i]
+            return None
+
+        def is_name(s):
+            if not re.match(r"^[A-Za-z][A-Za-z .'\-]{1,60}$", s) or _CONTENTS_BLACKLIST_RE.search(s):
+                return False
+            # Reject anything that's actually a "city STATE"-shaped line
+            # (e.g. "Chennai Tamil Nadu") so a name search landing near
+            # one of those doesn't mistake it for a name.
+            return not any(re.search(r'\s+' + re.escape(n) + r'$', s, re.I) for n in _CITY_STATE_SPLIT_NAMES)
+
+        def is_phone(s):
+            return bool(re.match(r'^\+?\d{7,15}$', s))
+
+        def is_short_code(s):
+            return bool(re.match(r'^[\w\-]{3,10}$', s))
+
+        def is_country(s):
+            return bool(self._detect_country_local(s))
 
         def split_city_state(line):
             if not line:
@@ -406,75 +441,87 @@ class AramexParser(BaseParser):
                 return parts[0].strip(), parts[1].strip()
             return line.strip(), None
 
+        # Countries sit on the two lines immediately before the codes
+        # line — the anchor this whole method is built around, so no
+        # search window needed here (a wrong-by-one read would just find
+        # a non-country line and fail cleanly rather than grab the wrong
+        # thing, since is_country() is a real validator, not a blind
+        # accept).
+        if not fields.get('from_country'):
+            v = near(-2, is_country, window=1)
+            if v:
+                fields['from_country'] = self._detect_country_local(v)
+        if not fields.get('to_country'):
+            v = near(-1, is_country, window=1)
+            if v:
+                fields['to_country'] = self._detect_country_local(v)
+
+        # Everything else is expressed as an offset from the codes line
+        # too (matching the original barcode-relative offsets, just
+        # re-based — codes_idx == barcode_idx + 3 on both real samples
+        # this was built against, so these numbers are the same ones,
+        # shifted by -3), each with its own small tolerance window.
+        def is_place_line(s):
+            return bool(re.match(r"^[A-Za-z][A-Za-z .'\-]{1,60}$", s)) and not _CONTENTS_BLACKLIST_RE.search(s)
+
         if not fields.get('from_name'):
-            v = at(-14)
+            v = near(-17, is_name, window=1)
             if v:
                 fields['from_name'] = v
         if not fields.get('to_name'):
-            v = at(-9)
+            v = near(-12, is_name, window=1)
             if v:
                 fields['to_name'] = v
 
-        fc, fs = split_city_state(at(-13))
+        fc, fs = split_city_state(near(-16, is_place_line, window=1))
         if fc and not fields.get('from_city'):
             fields['from_city'] = fc
         if fs and not fields.get('from_state'):
             fields['from_state'] = fs
-        tc, ts = split_city_state(at(-11))
+        tc, ts = split_city_state(near(-14, is_place_line, window=1))
         if tc and not fields.get('to_city'):
             fields['to_city'] = tc
         if ts and not fields.get('to_state'):
             fields['to_state'] = ts
 
-        v = at(-12)
-        if v and re.match(r'^[\w\-]{3,10}$', v) and not fields.get('from_postal'):
+        v = near(-15, is_short_code, window=2)
+        if v and not fields.get('from_postal'):
             fields['from_postal'] = v
-        v = at(-10)
-        if v and re.match(r'^[\w\-]{3,10}$', v) and not fields.get('to_postal'):
+        v = near(-13, is_short_code, window=2)
+        if v and not fields.get('to_postal'):
             fields['to_postal'] = v
 
-        v = at(-8)
-        if v and re.match(r'^\+?\d{7,15}$', v) and not fields.get('from_contact'):
+        v = near(-11, is_phone, window=2)
+        if v and not fields.get('from_contact'):
             fields['from_contact'] = v
-        v = at(-7)
-        if v and re.match(r'^\+?\d{7,15}$', v) and not fields.get('to_contact'):
+        v = near(-10, is_phone, window=2)
+        if v and not fields.get('to_contact'):
             fields['to_contact'] = v
 
-        v = at(-6)
-        if v and re.match(r'^\d{1,3}$', v):
+        v = near(-9, lambda s: bool(re.match(r'^\d{1,3}$', s)), window=2)
+        if v:
             fields['pieces'] = int(v)
 
         # Always overwrite — see the docstring above re: the confirmed
         # comma-thousands bug in the general-purpose _declared_value regex.
-        v = at(-5)
+        v = near(-8, lambda s: bool(re.match(r'^[\d,]+\.\d{2}\s+[A-Z]{3}$', s)), window=2)
         if v:
             vm = re.match(r'^([\d,]+\.\d{2})\s+([A-Z]{3})$', v)
-            if vm:
-                fields['declared_value'] = float(vm.group(1).replace(',', ''))
-                fields['currency'] = vm.group(2)
+            fields['declared_value'] = float(vm.group(1).replace(',', ''))
+            fields['currency'] = vm.group(2)
 
         if not fields.get('contents'):
-            v = at(-4)
-            if v and not _CONTENTS_BLACKLIST_RE.search(v):
+            v = near(-7, lambda s: len(s) >= 3 and not _CONTENTS_BLACKLIST_RE.search(s)
+                      and not is_phone(s) and not re.match(r'^[\d,]+\.\d{2}', s), window=2)
+            if v:
                 fields['contents'] = v
 
         if not fields.get('ship_date'):
-            v = at(-2)
-            if v and re.match(r'^\d{2}/\d{2}/\d{4}$', v):
+            v = near(-5, lambda s: bool(re.match(r'^\d{2}/\d{2}/\d{4}$', s)), window=2)
+            if v:
                 fields['ship_date'] = v
 
-        if not fields.get('from_country'):
-            v = at(1)
-            c = self._detect_country_local(v) if v else None
-            if c:
-                fields['from_country'] = c
-        if not fields.get('to_country'):
-            v = at(2)
-            c = self._detect_country_local(v) if v else None
-            if c:
-                fields['to_country'] = c
-
-        v = at(7)
+        v = near(4, lambda s: bool(re.match(r'^\d+\.\d{1,2}\s*KG$', s, re.I)), window=2)
         if v:
             wm = re.match(r'^(\d+\.\d{1,2})\s*KG$', v, re.I)
             if wm and not fields.get('actual_weight'):
@@ -482,13 +529,18 @@ class AramexParser(BaseParser):
                 fields['weight_unit'] = 'kg'
                 fields['billing_weight'] = fields['billing_weight'] or fields['actual_weight']
 
+        def is_address_like(s):
+            return (len(s) >= 8 and re.search(r'[A-Za-z]', s)
+                    and not re.match(r'^\d+\.\d{1,2}\s*KG$', s, re.I)
+                    and not _CONTENTS_BLACKLIST_RE.search(s))
+
         if not fields.get('to_address'):
-            v = at(8)
+            v = near(5, is_address_like, window=2)
             if v:
                 fields['to_address'] = re.sub(r'-\s*$', '', v).strip()
 
         if not fields.get('from_address'):
-            v = at(10)
+            v = near(7, is_address_like, window=2)
             if v:
                 am = re.match(r'^(.*?)-?(\d{6,10})$', v)
                 if am and am.group(1).strip(' ,-'):

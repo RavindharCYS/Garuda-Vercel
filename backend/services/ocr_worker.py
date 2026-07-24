@@ -20,9 +20,13 @@ try:
     from parsers.dispatcher import dispatch as _dispatch_parse, \
                                     compute_field_score as _score, \
                                     validate_fields as _validate
+    from parsers.field_validation import validate_field_consistency as _sanity_check
     _DISPATCHER_AVAILABLE = True
 except ImportError:
     _DISPATCHER_AVAILABLE = False
+
+    def _sanity_check(fields):
+        return []
 
 KNOWN_WORDS = [
     'kg','tracking','ship','origin','fedex','ups','dhl','waybill',
@@ -117,6 +121,7 @@ def main():
             "fields": fields,
             "field_score": compute_field_score(fields),
             "warnings": validate_fields(fields),
+            "sanity_warnings": _sanity_check(fields),
         }, ensure_ascii=False))
         return
 
@@ -164,6 +169,7 @@ def main():
             "rotation_applied": rotation,
             "fields": fields,
             "warnings": validate_fields(fields),
+            "sanity_warnings": _sanity_check(fields),
         }, ensure_ascii=False))
     except Exception as e:
         import traceback

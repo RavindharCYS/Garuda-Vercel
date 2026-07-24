@@ -103,6 +103,20 @@ function FileCard({ item, onSave, onDiscard, onGenerate }) {
             {status === 'ready'   && `OCR complete — ${result?.confidence?.toFixed(0)}% confidence · Rotation: ${result?.rotation_applied || 0}°`}
             {status === 'pending' && 'Queued for scanning…'}
           </div>
+          {status === 'ready' && result?.sanity_warnings?.length > 0 && (
+            <div style={{ marginTop:6, display:'flex', flexWrap:'wrap', gap:6 }}>
+              {result.sanity_warnings.map((w, i) => (
+                <span key={i} title={w.message} style={{
+                  fontSize:10, fontWeight:700, padding:'3px 8px', borderRadius:20,
+                  backgroundColor: w.severity === 'flag' ? '#fef2f2' : '#fffbeb',
+                  color: w.severity === 'flag' ? '#dc2626' : '#b45309',
+                  border: `1px solid ${w.severity === 'flag' ? '#fecaca' : '#fde68a'}`,
+                }}>
+                  ⚠ {w.field.replace(/_/g, ' ')}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         {status !== 'saved' && (
           <button onClick={onDiscard} style={{ background:'none', border:'none', color:'#9ca3af', cursor:'pointer', fontSize:18, padding:'0 4px', lineHeight:1, display:'flex' }}><FaXmark size={16} /></button>

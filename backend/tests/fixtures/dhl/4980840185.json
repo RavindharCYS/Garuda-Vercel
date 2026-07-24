@@ -1,0 +1,21 @@
+{
+  "source_pdf": "ANUSYUA_MATHIYALAGAN_AU_4980840185_AWB.pdf",
+  "raw_text": "EXPRESS WORLDWIDE\nWPX\nXMLPI 10.0 / *03-1211*\nFrom :INDIRANI MATHIYALAGAN\nINDIRANI MATHIYALAGAN\nFF 3 SIPCOT PREMIER QUARTERS\nPERUNDURAI\n638052 ERODE\nINDIA\nTo : ANUSYUA MATHIYALAGAN\nANUSYUA MATHIYALAGAN\nUNIT NO 1028 /30 CHARLES STREET\nPARAMATTA, NSW - 2150\nPARAMATTA\n2150 PARAMATTA\nAUSTRALIA\nIN-BLR-VPX WEST AU-SYD-HMB\nSINT\nC - NSR\nRef: DM1012964-D407-D407\nDate: 2026-07-18\nRef2: CSBIV Clearance.\nShipper VAT:\nReceiver VAT:\nContents: FANCY BANGLES SET BOX,\nWAYBILL 4980840185\n(2L)AU2150+48000001\n(J)JD014600012709375800\n\nOrigin:\nBLR\nDay Time\nPce/Shpt Weight Piece\n20.5 kg 1/1\n\n=== PAGE BREAK ===\n\n* ARCHIVE DOC *\nXMLPI 10.0 / *03-1211*\nFrom :INDIRANI MATHIYALAGAN\nINDIRANI MATHIYALAGAN\nFF 3 SIPCOT PREMIER QUARTERS\nPERUNDURAI\n638052 ERODE\nINDIA\nTo : ANUSYUA MATHIYALAGAN\nANUSYUA MATHIYALAGAN\nUNIT NO 1028 /30 CHARLES STREET\nPARAMATTA, NSW - 2150\nPARAMATTA\n2150 PARAMATTA\nAUSTRALIA\nIN-BLR-VPX WEST AU-SYD-HMB\nSINT\nProduct:\n[P]EXPRESS WORLDWIDE (48):\nPayment code:\nFRT A/C: 530649160\nDuty & Taxes Payer:\nDHL Billing Service:DTU,NSR\nINCOTERM:DAP\nRef: DM1012964-D407-D407\nRef2:CSBIV Clearance\nCustom Val: 10470.00 INR Shipment Date: 2026-07-18\nContents:FANCY BANGLES SET BOX,\nShipper VAT:\nReceiver VAT:\nWAYBILL 4980840185\nLicense Plates of pieces in shipment\nJD014600012709375800\n\nWPX\nFeatures / Services:\nDuties & Taxes Unpaid (DS)\nNo Signature Required (SX)\n20.5kg 1\n\nOrigin:\nBLR\nShpt Wght: Pieces",
+  "expected": {
+    "carrier": "DHL",
+    "from_name": "INDIRANI MATHIYALAGAN",
+    "from_city": "Erode",
+    "from_country": "India",
+    "to_name": "ANUSYUA MATHIYALAGAN",
+    "to_city": "Paramatta",
+    "to_state": "NSW",
+    "to_country": "Australia",
+    "carrier_tracking_number": "4980840185",
+    "actual_weight": 20.5,
+    "pieces": 1,
+    "ship_date": "2026-07-18",
+    "contents": "FANCY BANGLES SET BOX",
+    "declared_value": 10470.0,
+    "currency": "INR"
+  }
+}

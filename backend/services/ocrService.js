@@ -30,6 +30,7 @@ const googleVision = require('./googleVisionService');
 const gemini = require('./geminiService');
 const { logApiCall } = require('./apiHealth');
 const { computeFieldScore } = require('./waybillFieldSchema');
+const { validateFieldConsistency } = require('./fieldValidation');
 
 const WORKER_PATH = path.join(__dirname, 'ocr_worker.py');
 
@@ -60,7 +61,10 @@ function parseFieldsFromText(rawText) {
       if (err && !stdout) return reject(new Error(`Field parser failed: ${err.message}`));
       try {
         const parsed = JSON.parse(stdout.trim());
-        resolve({ fields: parsed.fields || {}, field_score: parsed.field_score || 0, warnings: parsed.warnings || [] });
+        resolve({
+          fields: parsed.fields || {}, field_score: parsed.field_score || 0,
+          warnings: parsed.warnings || [], sanity_warnings: parsed.sanity_warnings || [],
+        });
       }
       catch (e) { reject(new Error('Field parser returned invalid JSON')); }
     });
@@ -93,6 +97,7 @@ function runTesseract(filePath) {
         rotation_applied: result.rotation_applied || 0,
         fields: result.fields || {},
         warnings: result.warnings || [],
+        sanity_warnings: result.sanity_warnings || [],
         // Reflects whichever layer the worker actually used — 'pdf_text_layer'
         // (native PDF text, no OCR at all), 'onnxtr', 'tesseract', or a hybrid
         // like 'pdf_text_layer+tesseract' when native text was usable but
@@ -148,7 +153,7 @@ async function runGoogleVision(filePath) {
     bestText = rawText; bestConfidence = confidence;
   }
 
-  const { fields, field_score, warnings } = await parseFieldsFromText(bestText);
+  const { fields, field_score, warnings, sanity_warnings } = await parseFieldsFromText(bestText);
   // Blend OCR confidence with field-completeness, same as the Tesseract path —
   // otherwise a label with mostly-null fields can still report ~88% confidence
   // purely because Vision read the text cleanly.
@@ -161,6 +166,7 @@ async function runGoogleVision(filePath) {
     rotation_applied: 0,
     fields,
     warnings,
+    sanity_warnings,
     engine: 'google_vision',
   };
 }
@@ -252,6 +258,11 @@ function rescoreResult(result, mergedFields, geminiUsed) {
     fields: mergedFields,
     field_score,
     confidence,
+    // Recomputed against the post-Gemini-merge fields — the pre-merge
+    // sanity_warnings on `result` could be stale once Gemini has changed
+    // a value (e.g. corrected a postal code the regex pass got wrong, or
+    // introduced a new inconsistency of its own).
+    sanity_warnings: validateFieldConsistency(mergedFields),
     engine: geminiUsed ? `${result.engine}+gemini` : result.engine,
     gemini_used: geminiUsed,
   };

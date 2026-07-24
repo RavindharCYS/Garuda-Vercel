@@ -332,225 +332,193 @@ class AramexParser(BaseParser):
         return fields
 
     # ── Scrambled classic-AWB layout (native PDF text-layer order) ──────────
-    # Confirmed against two real samples of the "big" 2-page Forward Air
-    # Waybill form (AWB *32202672935*, India->USA; AWB *32202634995*,
-    # India->Australia): the PDF's native text-layer extraction order is
-    # NOT the visual reading order, and none of the structured-grid or
-    # "KIND ATTN" literal anchor text the rest of this file's extraction
-    # relies on is present at all. Both real samples share this EXACT
-    # field order, anchored relative to the barcode-wrapped AWB number
-    # line (rather than absolute line numbers, in case blank lines or
-    # minor content differences shift things on a third sample):
+    # Built and verified against GROUND TRUTH: run through the actual
+    # production extractor (pdf_native_text.extract_native_pdf_text)
+    # against the real uploaded PDFs and reading the literal output — not
+    # a reconstruction from memory.
     #
-    #   [-14] from_name            [-13] "from_city from_state"
-    #   [-12] from_postal          [-11] "to_city to_state"
-    #   [-10] to_postal            [-9]  to_name
-    #   [-8]  from_contact         [-7]  to_contact
-    #   [-6]  pieces                [-5]  "declared_value currency"
-    #   [-4]  contents              [-3]  service literal (EXP)
-    #   [-2]  ship_date             [-1]  signature marker (X)
-    #    [0]  *AWB NUMBER*
-    #   [+1]  from_country          [+2]  to_country
-    #   [+3]  "origin_code destination_code"        (already handled by
-    #                                                 _origin_destination)
-    #   [+7]  actual_weight         [+8]  to_address
-    #   [+10] from_address (shipper's account number glued on with no
-    #          separator — split off into account_number)
+    # The real structure is two short, internally-consistent field blocks
+    # bracketing the "CONDITIONS OF CARRIAGE" legal boilerplate — NOT a
+    # single scrambled run — confirmed identical on both real samples
+    # (AWB *32202672935*, India->USA; AWB *32202634995*, India->Australia):
     #
-    # Without this, the generic flat-OCR fallback (built for a DIFFERENT
-    # real sample where "KIND ATTN" genuinely anchors the receiver block)
-    # captures "everything before the barcode" as from_block — which, on
-    # THIS layout, is both parties' data concatenated together — and finds
-    # no to_block at all (to_* fields all stayed null). Also fixes a
-    # confirmed comma-thousands bug in the general-purpose declared-value
-    # regex ("1,500.00" → 500.00, since \d+\.\d{2} can't span the comma) by
-    # always overwriting it here with a correctly comma-stripped parse.
+    #   Block A (everything before "CONDITIONS OF CARRIAGE" — i.e.
+    #   _pre_legal_text()), one field group per line:
+    #     [0]  account_number                [1]  from_contact
+    #     [2]  "from_name from_contact"       [3]  from_name (repeat)
+    #     [4]  from_address                   [5]  "from_city from_state"
+    #     [6]  "from_country from_postal"     [7]  to_name (short variant)
+    #     [8]  "to_contact to_contact"        [9]  to_name (full variant)
+    #     [10] to_address                     [11] to_state
+    #     [12] to_city                        [13] "to_country to_postal"
+    #     [14] ship_date
+    #
+    #   Block B (starts right after the barcode-wrapped AWB number, which
+    #   itself sits after the legal text and a barcode graphic — found by
+    #   searching the whole document rather than assuming a fixed offset
+    #   from Block A, since a variable amount of legal text sits between
+    #   them):
+    #     [0]  *AWB NUMBER*                   [1]  "origin_code dest_code"
+    #     [2]  "pieces actual_wt billing_wt"  [3]  contents
+    #     [4]  "declared_value currency"      [5]  "service billing_code"
+    #
+    # Each combined line is parsed with its own small, specific regex —
+    # not blind position trust — so a document that doesn't quite match
+    # fails that one field's regex and simply leaves it for the generic
+    # fallback, rather than silently mis-assigning a neighboring field's
+    # value. Block A additionally requires a strict entry signature
+    # (account-number digit line immediately followed by a "name phone"
+    # combined line) before touching any field at all — confirmed
+    # necessary: a genuinely structured "1 FROM (SHIPPER)" grid document
+    # (own labels each on their own line) doesn't produce that
+    # combination, but without this check this method was misreading
+    # such a document's own label lines as data. Likewise Block B's
+    # origin/destination code match excludes this format's own known
+    # service-type codes (EXP/PPX/etc.), which also fit a bare
+    # "XXX YYY" 3-letter pattern and would otherwise false-positive on
+    # a structured document's "EXP PPX" service line.
 
     def _parse_scrambled_classic_awb(self, text, fields):
-        lines = [l.strip() for l in text.split('\n') if l.strip()]
+        found_any = False
+
+        # ── Block A ──────────────────────────────────────────────────────
+        a = [l.strip() for l in _pre_legal_text(text).split('\n') if l.strip()]
+
+        def a_at(i):
+            return a[i] if 0 <= i < len(a) else None
+
+        block_a_valid = (
+            len(a) >= 15
+            and a_at(0) and re.match(r'^\d{5,12}$', a[0])
+            and a_at(2) and re.match(r'^.+?\s+\+?\d{7,15}$', a[2])
+        )
+
+        if block_a_valid:
+            m = re.match(r'^(\d{5,12})$', a[0])
+            if m and not fields.get('account_number'):
+                fields['account_number'] = m.group(1)
+                found_any = True
+
+            m = re.match(r'^(.+?)\s+(\+?\d{7,15})$', a[2])
+            if m:
+                if not fields.get('from_name'):
+                    fields['from_name'] = m.group(1).strip()
+                if not fields.get('from_contact'):
+                    fields['from_contact'] = m.group(2)
+                found_any = True
+            elif a_at(3) and not fields.get('from_name'):
+                fields['from_name'] = a[3]
+
+            if a_at(4) and not fields.get('from_address'):
+                fields['from_address'] = re.sub(r'-\s*$', '', a[4]).strip()
+                found_any = True
+
+            fc, fs = self._split_city_state(a_at(5))
+            if fc and not fields.get('from_city'):
+                fields['from_city'] = fc
+            if fs and not fields.get('from_state'):
+                fields['from_state'] = fs
+
+            m = re.match(r'^(.+?)\s+([\w\-]{3,10})$', a[6]) if a_at(6) else None
+            if m:
+                if not fields.get('from_country'):
+                    fields['from_country'] = self._detect_country_local(m.group(1)) or m.group(1).strip()
+                if not fields.get('from_postal'):
+                    fields['from_postal'] = m.group(2)
+
+            # to_name appears twice — a short/truncated read at [7] and a
+            # fuller one at [9] (text-layer artifact, not two people);
+            # prefer whichever is longer, since that's consistently the
+            # more complete one on both real samples.
+            cand_names = [n for n in (a_at(7), a_at(9))
+                          if n and re.match(r"^[A-Za-z][A-Za-z .'\-]{1,60}$", n)]
+            if cand_names and not fields.get('to_name'):
+                fields['to_name'] = max(cand_names, key=len)
+                found_any = True
+
+            m = re.match(r'^(\+?\d{7,15})\s+\+?\d{7,15}$', a[8]) if a_at(8) else None
+            if m and not fields.get('to_contact'):
+                fields['to_contact'] = m.group(1)
+
+            if a_at(10) and not fields.get('to_address'):
+                fields['to_address'] = re.sub(r'-\s*$', '', a[10]).strip()
+
+            if a_at(11) and not fields.get('to_state') and re.match(r"^[A-Za-z][A-Za-z .'\-]{1,40}$", a[11]):
+                fields['to_state'] = a[11]
+            if a_at(12) and not fields.get('to_city') and re.match(r"^[A-Za-z][A-Za-z .'\-]{1,40}$", a[12]):
+                fields['to_city'] = a[12]
+
+            m = re.match(r'^(.+?)\s+([\w\-]{3,10})$', a[13]) if a_at(13) else None
+            if m:
+                if not fields.get('to_country'):
+                    fields['to_country'] = self._detect_country_local(m.group(1)) or m.group(1).strip()
+                if not fields.get('to_postal'):
+                    fields['to_postal'] = m.group(2)
+
+            if a_at(14) and not fields.get('ship_date') and re.match(r'^\d{2}/\d{2}/\d{4}$', a[14]):
+                fields['ship_date'] = a[14]
+
+        # ── Block B ──────────────────────────────────────────────────────
+        # Anchored on the AWB-number barcode wherever it actually falls in
+        # the document (rather than assuming a fixed distance from Block
+        # A), since a variable amount of legal boilerplate separates them.
+        full_lines = [l.strip() for l in text.split('\n') if l.strip()]
         barcode_re = re.compile(r'^\*(\d{8,14})\*$')
-        barcode_idx = next((i for i, l in enumerate(lines) if barcode_re.match(l)), None)
-        if barcode_idx is None:
-            return False
+        b0 = next((i for i, l in enumerate(full_lines) if barcode_re.match(l)), None)
 
-        # The origin/destination airport-code-pair line ("MAA JFK") is
-        # this layout's single most distinctive, reliable signature — a
-        # genuinely structured "1 FROM (SHIPPER)/2 TO (RECEIVER)"
-        # document's barcode is followed by "EXP PPX <value>...", never a
-        # bare "XXX YYY" line — so its presence within a few lines after
-        # the barcode is both the entry gate for this whole method AND,
-        # by anchoring every other lookup below to its ACTUAL found
-        # position rather than an assumed fixed offset from the barcode,
-        # what makes this tolerant of a given document having one or two
-        # extra/missing lines around the barcode itself.
-        #
-        # Confirmed bug: a bare "[A-Z]{3}\s+[A-Z]{3}" pattern also matches
-        # this layout's OWN "EXP PPX" service-type line, and the
-        # structured-grid regression sample's "EXP PPX" line right after
-        # ITS barcode was matching too — letting that document slip
-        # through this method's gate. Excluded here by name.
-        _NOT_AIRPORT_CODE = {'EXP', 'STD', 'PPX', 'DOM', 'NSR', 'CVG', 'INT'}
-        codes_re = re.compile(r'^([A-Z]{3})\s+([A-Z]{3})$')
-        codes_idx = None
-        for i in range(barcode_idx + 1, min(barcode_idx + 8, len(lines))):
-            cm = codes_re.match(lines[i])
-            if cm and cm.group(1) not in _NOT_AIRPORT_CODE and cm.group(2) not in _NOT_AIRPORT_CODE:
-                codes_idx = i
-                break
-        if codes_idx is None:
-            return False
+        def b_at(offset):
+            i = b0 + offset if b0 is not None else -1
+            return full_lines[i] if 0 <= i < len(full_lines) else None
 
-        def near(offset, validator, window=2):
-            """Checks `offset` first, then progressively further offsets
-            on both sides (offset±1, offset±2, ...) up to `window`,
-            returning the first line where `validator(line)` is truthy —
-            or None if nothing in range qualifies."""
-            for d in range(window + 1):
-                for cand in ({offset - d, offset + d} if d else {offset}):
-                    i = codes_idx + cand
-                    if 0 <= i < len(lines) and validator(lines[i]):
-                        return lines[i]
-            return None
+        if b0 is not None:
+            _NOT_AIRPORT_CODE = {'EXP', 'STD', 'PPX', 'DOM', 'NSR', 'CVG', 'INT'}
+            m = re.match(r'^([A-Z]{3})\s+([A-Z]{3})$', b_at(1) or '')
+            if m and m.group(1) not in _NOT_AIRPORT_CODE and m.group(2) not in _NOT_AIRPORT_CODE:
+                found_any = True
+                if not fields.get('origin_code'):
+                    fields['origin_code'] = m.group(1)
+                if not fields.get('destination_code'):
+                    fields['destination_code'] = m.group(2)
 
-        def is_name(s):
-            if not re.match(r"^[A-Za-z][A-Za-z .'\-]{1,60}$", s) or _CONTENTS_BLACKLIST_RE.search(s):
-                return False
-            # Reject anything that's actually a "city STATE"-shaped line
-            # (e.g. "Chennai Tamil Nadu") so a name search landing near
-            # one of those doesn't mistake it for a name.
-            return not any(re.search(r'\s+' + re.escape(n) + r'$', s, re.I) for n in _CITY_STATE_SPLIT_NAMES)
+            m = re.match(r'^(\d{1,3})\s+([\d.]+)\s*KG\s+([\d.]+)\s*KG$', b_at(2) or '', re.I)
+            if m:
+                found_any = True
+                fields['pieces'] = int(m.group(1))
+                if not fields.get('actual_weight'):
+                    fields['actual_weight'] = float(m.group(2))
+                    fields['weight_unit'] = 'kg'
+                if not fields.get('billing_weight'):
+                    fields['billing_weight'] = float(m.group(3))
 
-        def is_phone(s):
-            return bool(re.match(r'^\+?\d{7,15}$', s))
-
-        def is_short_code(s):
-            return bool(re.match(r'^[\w\-]{3,10}$', s))
-
-        def is_country(s):
-            return bool(self._detect_country_local(s))
-
-        def split_city_state(line):
-            if not line:
-                return None, None
-            for name in _CITY_STATE_SPLIT_NAMES:
-                suffix_re = re.compile(r'\s+' + re.escape(name) + r'$', re.I)
-                if suffix_re.search(line):
-                    return suffix_re.sub('', line).strip(), name
-            parts = line.rsplit(' ', 1)
-            if len(parts) == 2 and parts[1]:
-                return parts[0].strip(), parts[1].strip()
-            return line.strip(), None
-
-        # Countries sit on the two lines immediately before the codes
-        # line — the anchor this whole method is built around, so no
-        # search window needed here (a wrong-by-one read would just find
-        # a non-country line and fail cleanly rather than grab the wrong
-        # thing, since is_country() is a real validator, not a blind
-        # accept).
-        if not fields.get('from_country'):
-            v = near(-2, is_country, window=1)
-            if v:
-                fields['from_country'] = self._detect_country_local(v)
-        if not fields.get('to_country'):
-            v = near(-1, is_country, window=1)
-            if v:
-                fields['to_country'] = self._detect_country_local(v)
-
-        # Everything else is expressed as an offset from the codes line
-        # too (matching the original barcode-relative offsets, just
-        # re-based — codes_idx == barcode_idx + 3 on both real samples
-        # this was built against, so these numbers are the same ones,
-        # shifted by -3), each with its own small tolerance window.
-        def is_place_line(s):
-            return bool(re.match(r"^[A-Za-z][A-Za-z .'\-]{1,60}$", s)) and not _CONTENTS_BLACKLIST_RE.search(s)
-
-        if not fields.get('from_name'):
-            v = near(-17, is_name, window=1)
-            if v:
-                fields['from_name'] = v
-        if not fields.get('to_name'):
-            v = near(-12, is_name, window=1)
-            if v:
-                fields['to_name'] = v
-
-        fc, fs = split_city_state(near(-16, is_place_line, window=1))
-        if fc and not fields.get('from_city'):
-            fields['from_city'] = fc
-        if fs and not fields.get('from_state'):
-            fields['from_state'] = fs
-        tc, ts = split_city_state(near(-14, is_place_line, window=1))
-        if tc and not fields.get('to_city'):
-            fields['to_city'] = tc
-        if ts and not fields.get('to_state'):
-            fields['to_state'] = ts
-
-        v = near(-15, is_short_code, window=2)
-        if v and not fields.get('from_postal'):
-            fields['from_postal'] = v
-        v = near(-13, is_short_code, window=2)
-        if v and not fields.get('to_postal'):
-            fields['to_postal'] = v
-
-        v = near(-11, is_phone, window=2)
-        if v and not fields.get('from_contact'):
-            fields['from_contact'] = v
-        v = near(-10, is_phone, window=2)
-        if v and not fields.get('to_contact'):
-            fields['to_contact'] = v
-
-        v = near(-9, lambda s: bool(re.match(r'^\d{1,3}$', s)), window=2)
-        if v:
-            fields['pieces'] = int(v)
-
-        # Always overwrite — see the docstring above re: the confirmed
-        # comma-thousands bug in the general-purpose _declared_value regex.
-        v = near(-8, lambda s: bool(re.match(r'^[\d,]+\.\d{2}\s+[A-Z]{3}$', s)), window=2)
-        if v:
-            vm = re.match(r'^([\d,]+\.\d{2})\s+([A-Z]{3})$', v)
-            fields['declared_value'] = float(vm.group(1).replace(',', ''))
-            fields['currency'] = vm.group(2)
-
-        if not fields.get('contents'):
-            v = near(-7, lambda s: len(s) >= 3 and not _CONTENTS_BLACKLIST_RE.search(s)
-                      and not is_phone(s) and not re.match(r'^[\d,]+\.\d{2}', s), window=2)
-            if v:
+            v = b_at(3)
+            if v and not fields.get('contents') and not _CONTENTS_BLACKLIST_RE.search(v):
                 fields['contents'] = v
+                found_any = True
 
-        if not fields.get('ship_date'):
-            v = near(-5, lambda s: bool(re.match(r'^\d{2}/\d{2}/\d{4}$', s)), window=2)
-            if v:
-                fields['ship_date'] = v
+            # Always overwrite — the general-purpose declared-value regex
+            # has a confirmed bug with comma-grouped thousands
+            # ("1,500.00" → 500.00, since \d+\.\d{2} can't span the
+            # comma), and this read is a precise, validated match.
+            m = re.match(r'^([\d,]+\.\d{2})\s+([A-Z]{3})$', b_at(4) or '')
+            if m:
+                fields['declared_value'] = float(m.group(1).replace(',', ''))
+                fields['currency'] = m.group(2)
+                found_any = True
 
-        v = near(4, lambda s: bool(re.match(r'^\d+\.\d{1,2}\s*KG$', s, re.I)), window=2)
-        if v:
-            wm = re.match(r'^(\d+\.\d{1,2})\s*KG$', v, re.I)
-            if wm and not fields.get('actual_weight'):
-                fields['actual_weight'] = float(wm.group(1))
-                fields['weight_unit'] = 'kg'
-                fields['billing_weight'] = fields['billing_weight'] or fields['actual_weight']
+        return found_any
 
-        def is_address_like(s):
-            return (len(s) >= 8 and re.search(r'[A-Za-z]', s)
-                    and not re.match(r'^\d+\.\d{1,2}\s*KG$', s, re.I)
-                    and not _CONTENTS_BLACKLIST_RE.search(s))
-
-        if not fields.get('to_address'):
-            v = near(5, is_address_like, window=2)
-            if v:
-                fields['to_address'] = re.sub(r'-\s*$', '', v).strip()
-
-        if not fields.get('from_address'):
-            v = near(7, is_address_like, window=2)
-            if v:
-                am = re.match(r'^(.*?)-?(\d{6,10})$', v)
-                if am and am.group(1).strip(' ,-'):
-                    fields['from_address'] = am.group(1).rstrip('-, ').strip()
-                    if not fields.get('account_number'):
-                        fields['account_number'] = am.group(2)
-                else:
-                    fields['from_address'] = v.rstrip('-, ').strip()
-
-        return True
+    @staticmethod
+    def _split_city_state(line):
+        if not line:
+            return None, None
+        for name in _CITY_STATE_SPLIT_NAMES:
+            suffix_re = re.compile(r'\s+' + re.escape(name) + r'$', re.I)
+            if suffix_re.search(line):
+                return suffix_re.sub('', line).strip(), name
+        parts = line.rsplit(' ', 1)
+        if len(parts) == 2 and parts[1]:
+            return parts[0].strip(), parts[1].strip()
+        return line.strip(), None
 
     @staticmethod
     def _detect_country_local(text):
@@ -558,53 +526,88 @@ class AramexParser(BaseParser):
         return detect_country(text)
 
     # ── Scrambled thermal-label layout (native PDF text-layer order) ────────
-    # Confirmed against two real samples of Aramex's newer thermal-label
-    # AWB (AWB *37294398492* and *37294398470*, both Chennai -> Dubai) —
-    # distinct from the classic form above (this one has no "1 FROM
-    # (SHIPPER)"/"2 TO (RECEIVER)" grid at all; its own labels are
-    # "Origin/Destination/Product Group/Weight/Description/Custom
-    # Value/Pieces/From/To"). Detected by its distinctive "Shpr Ref:
-    # GARUDA" / "Con Ref:" footer line, which the classic form never has.
-    # Like the classic form, values are frequently decoupled from their
-    # own labels by several lines (e.g. "Destination:" and "Pickup Date:"
-    # sit on one line with no values, while the actual "DXB
-    # 7/15/2026 6:06:00PM" appears several lines later) — those are read
-    # via fixed offsets from the SECOND occurrence of the barcode-wrapped
-    # tracking number (confirmed identical across both real samples),
-    # mirroring the classic-AWB method above. Everything else (account
-    # number, phones, pieces, contents+customs value, weight) genuinely
-    # does sit right after its own label and is extracted directly.
+    # Built and verified against GROUND TRUTH the same way as the classic-
+    # AWB method above. One extra wrinkle this format has: a 2D barcode
+    # graphic renders as literal block-drawing Unicode characters (█▌▐▄▀
+    # etc.) that the text layer captures interleaved INTO otherwise-
+    # normal content lines (e.g. one real line reads literally
+    # "To: JASER ████████8 ▐▐▐▐▐▐▐▐") rather than sitting off on their
+    # own lines — _clean_barcode_noise() strips those glyph-heavy tokens
+    # per line before anything else here looks at the text.
+    #
+    # Once cleaned, both real samples (AWB *37294398492* and
+    # *37294398470*, both Chennai -> Dubai) share this exact structure:
+    #   MAA                                  <- origin_code
+    #   *AWB NUMBER*
+    #   Destination: Pickup Date: <date> <time>
+    #   DXB                                  <- destination_code
+    #   Product Group: Type: Payment:
+    #   EXP PPX P
+    #   Weight: <n>KG Chargeable: <n>KG
+    #   Description:<contents1> Custom Value: <value> <currency>
+    #   <contents2>
+    #   Cash on delivery: Pieces:<n>
+    #   From:
+    #   Account: <account_number>
+    #   <from_name>
+    #   <from_name> (repeat)
+    #   <from_address>
+    #   <from_city> <from_country>
+    #   Tel: <from_contact>
+    #   To: <to_name>
+    #   <to_name> (repeat)
+    #   <to_address line 1>
+    #   <to_address line 2>
+    #   <to_city> -
+    #   <to_country>
+    #   Tel: <to_contact>
+    #   Mob: <to_contact> (repeat)
+    #   Shpr Ref: GARUDA Con Ref:        <- detection anchor
+    # Detected by that distinctive "Shpr Ref: GARUDA" footer, which the
+    # classic form above never has.
 
     def _parse_scrambled_thermal_label(self, text, fields):
         if not re.search(r'Shpr\s*Ref\s*:\s*GARUDA', text, re.I):
             return False
 
-        m = re.search(r'Account\s*:\s*(\d+)', text, re.I)
-        if m and not fields.get('account_number'):
-            fields['account_number'] = m.group(1)
+        lines = [self._clean_barcode_noise(l) for l in text.split('\n')]
+        lines = [l for l in lines if l]
+        found_any = False
 
-        m = re.search(r'From\s*:.*?Account\s*:.*?Tel\s*:\s*(\+?\d[\d\s]{6,15})', text, re.I | re.S)
-        if m and not fields.get('from_contact'):
-            fields['from_contact'] = re.sub(r'\s+', '', m.group(1))
+        def idx_of(pred):
+            return next((i for i, l in enumerate(lines) if pred(l)), None)
 
-        m = re.search(r'Pieces\s*:\s*(\d+)', text, re.I)
+        awb_i = idx_of(lambda l: bool(re.match(r'^\*\d{8,14}\*$', l)))
+        if awb_i is not None:
+            if awb_i - 1 >= 0 and re.match(r'^[A-Z]{3}$', lines[awb_i - 1]) and not fields.get('origin_code'):
+                fields['origin_code'] = lines[awb_i - 1]
+                found_any = True
+            nxt = lines[awb_i + 1] if awb_i + 1 < len(lines) else ''
+            m = re.match(r'^Destination\s*:\s*Pickup\s*Date\s*:\s*(\d{1,2}/\d{1,2}/\d{4})', nxt)
+            if m:
+                if not fields.get('ship_date'):
+                    fields['ship_date'] = m.group(1)
+                if awb_i + 2 < len(lines) and re.match(r'^[A-Z]{3}$', lines[awb_i + 2]) and not fields.get('destination_code'):
+                    fields['destination_code'] = lines[awb_i + 2]
+                found_any = True
+
+        m = re.search(r'Weight\s*:\s*([\d.]+)\s*KG.*?Chargeable\s*:\s*([\d.]+)\s*KG', text, re.I | re.S)
         if m:
-            fields['pieces'] = int(m.group(1))
-
-        m = re.search(r'To\s*:(.*?)Shpr\s*Ref', text, re.I | re.S)
-        if m:
-            to_section = m.group(1)
-            pm = re.search(r'(?:Tel|Mob)\s*:\s*(\+?\d[\d\s]{6,15})', to_section, re.I)
-            if pm and not fields.get('to_contact'):
-                fields['to_contact'] = re.sub(r'\s+', '', pm.group(1))
+            found_any = True
+            if not fields.get('actual_weight'):
+                fields['actual_weight'] = float(m.group(1))
+                fields['weight_unit'] = 'kg'
+            if not fields.get('billing_weight'):
+                fields['billing_weight'] = float(m.group(2))
 
         m = re.search(
             r'Description\s*:\s*([^\n]*?)\s*Custom\s*Value\s*:\s*([\d,]+\.?\d*)\s*([A-Z]{3})?\s*\n\s*([^\n]*)',
             text, re.I)
         if m:
+            found_any = True
             desc1 = m.group(1).strip()
             desc2 = m.group(4).strip()
-            if desc2 and not re.match(r'^(From|Account|Pieces|To|Tel|Mob)\b', desc2, re.I):
+            if desc2 and not re.match(r'^(Cash|From|Account|Pieces|To|Tel|Mob)\b', desc2, re.I):
                 contents = f'{desc1} {desc2}'.strip()
             else:
                 contents = desc1
@@ -615,76 +618,87 @@ class AramexParser(BaseParser):
             if m.group(3):
                 fields['currency'] = m.group(3)
 
-        m = re.search(r'Weight\s*:\s*([\d.]+)\s*KG.*?Chargeable\s*:\s*([\d.]+)\s*KG', text, re.I | re.S)
+        m = re.search(r'Pieces\s*:\s*(\d+)', text, re.I)
         if m:
-            if not fields.get('actual_weight'):
-                fields['actual_weight'] = float(m.group(1))
-                fields['weight_unit'] = 'kg'
-            if not fields.get('billing_weight'):
-                fields['billing_weight'] = float(m.group(2))
+            fields['pieces'] = int(m.group(1))
+            found_any = True
 
-        lines = [l.strip() for l in text.split('\n') if l.strip()]
-        barcode_re = re.compile(r'^\*(\d{8,14})\*$')
-        barcode_positions = [i for i, l in enumerate(lines) if barcode_re.match(l)]
-        if len(barcode_positions) >= 2:
-            b2 = barcode_positions[1]
+        m = re.search(r'Account\s*:\s*(\d+)', text, re.I)
+        if m and not fields.get('account_number'):
+            fields['account_number'] = m.group(1)
+            found_any = True
 
-            def at(offset):
-                i = b2 + offset
-                return lines[i] if 0 <= i < len(lines) else None
+        acct_i = idx_of(lambda l: bool(re.match(r'^Account\s*:\s*\d+$', l, re.I)))
+        if acct_i is not None:
+            j = acct_i + 1
+            name = lines[j] if j < len(lines) else None
+            if name and re.match(r"^[A-Za-z][A-Za-z .'\-]{1,60}$", name):
+                if not fields.get('from_name'):
+                    fields['from_name'] = name
+                    found_any = True
+                j += 1
+                if j < len(lines) and lines[j] == name:
+                    j += 1
+                if j < len(lines) and not fields.get('from_address'):
+                    fields['from_address'] = lines[j].rstrip('-, ').strip()
+                j += 1
+                if j < len(lines):
+                    cm = re.match(r'^([A-Za-z][A-Za-z\s]*?)\s+([A-Za-z][A-Za-z\s]*)$', lines[j])
+                    if cm:
+                        country = self._detect_country_local(cm.group(2))
+                        if country:
+                            if not fields.get('from_city'):
+                                fields['from_city'] = cm.group(1).strip()
+                            if not fields.get('from_country'):
+                                fields['from_country'] = country
 
-            v = at(1)
-            if v and not fields.get('from_country'):
-                c = self._detect_country_local(v)
-                if c:
-                    fields['from_country'] = c
-            v = at(2)
-            if v and not fields.get('to_country'):
-                c = self._detect_country_local(v)
-                if c:
-                    fields['to_country'] = c
+        m = re.search(r'Account\s*:.*?Tel\s*:\s*(\+?\d[\d\s]{6,15})', text, re.I | re.S)
+        if m and not fields.get('from_contact'):
+            fields['from_contact'] = re.sub(r'\s+', '', m.group(1))
 
-            v = at(3)
-            if v and re.match(r'^[A-Z]{3}$', v) and not fields.get('origin_code'):
-                fields['origin_code'] = v
+        to_i = idx_of(lambda l: bool(re.match(r'^To\s*:\s*\S', l, re.I)))
+        if to_i is not None:
+            name = re.sub(r'^To\s*:\s*', '', lines[to_i], flags=re.I).strip()
+            if name and not fields.get('to_name'):
+                fields['to_name'] = name
+                found_any = True
+            j = to_i + 1
+            if j < len(lines) and lines[j] == name:
+                j += 1
+            addr_lines = []
+            while j < len(lines) and not re.match(r'^[A-Za-z][A-Za-z\s]*-$', lines[j]):
+                addr_lines.append(lines[j])
+                j += 1
+                if len(addr_lines) >= 3:
+                    break
+            if addr_lines and not fields.get('to_address'):
+                fields['to_address'] = ' '.join(addr_lines).strip()
+            if j < len(lines):
+                cm = re.match(r'^([A-Za-z][A-Za-z\s]*)-$', lines[j])
+                if cm and not fields.get('to_city'):
+                    fields['to_city'] = cm.group(1).strip()
+                if j + 1 < len(lines) and not fields.get('to_country'):
+                    country = self._detect_country_local(lines[j + 1])
+                    if country:
+                        fields['to_country'] = country
 
-            v = at(4)
-            if v:
-                dm = re.match(r'^([A-Z]{3})\s+(\d{1,2}/\d{1,2}/\d{4})', v)
-                if dm:
-                    if not fields.get('destination_code'):
-                        fields['destination_code'] = dm.group(1)
-                    if not fields.get('ship_date'):
-                        fields['ship_date'] = dm.group(2)
+        m = re.search(r'To\s*:.*?(?:Tel|Mob)\s*:\s*(\+?\d[\d\s]{6,15})', text, re.I | re.S)
+        if m and not fields.get('to_contact'):
+            fields['to_contact'] = re.sub(r'\s+', '', m.group(1))
 
-            v = at(6)
-            if v and not fields.get('from_name'):
-                fields['from_name'] = v
+        return found_any
 
-            v = at(8)
-            if v and not fields.get('from_city'):
-                fields['from_city'] = v
+    _BARCODE_GLYPHS = '█▌▐▄▀▁▂▃▅▆▇■□▪▫'
 
-            v = at(9)
-            if v and not fields.get('to_name'):
-                fields['to_name'] = v
-
-        # from_address / to_address sit at the very end of the extraction,
-        # right after the barcode's own decorative block-character
-        # rendering — confirmed on both samples as the last content lines
-        # in the whole document. from_address is always the first of
-        # these; to_address is everything remaining (it wraps across more
-        # than one physical line on both real samples on hand).
-        block_char_re = re.compile(r'[\u2580-\u259F]')
-        tail_start = next((i for i in range(len(lines) - 1, -1, -1) if block_char_re.search(lines[i])), None)
-        if tail_start is not None:
-            tail = [l for l in lines[tail_start + 1:] if not re.match(r'^\d+\s*$', l)]
-            if tail and not fields.get('from_address'):
-                fields['from_address'] = tail[0]
-            if len(tail) > 1 and not fields.get('to_address'):
-                fields['to_address'] = ' '.join(tail[1:]).strip()
-
-        return True
+    @classmethod
+    def _clean_barcode_noise(cls, line):
+        """Strips barcode-graphic glyph runs that the text layer renders
+        interleaved directly into otherwise-normal content lines on the
+        thermal-label format (e.g. "To: JASER ████████8 ▐▐▐▐▐▐▐▐" ->
+        "To: JASER") — a token is dropped if 2+ of its characters are
+        block-drawing glyphs, real words never trip this."""
+        kept = [t for t in line.split(' ') if sum(c in cls._BARCODE_GLYPHS for c in t) < 2]
+        return ' '.join(kept).strip()
 
     # ── Tracking ──────────────────────────────────────────────────────────────
     # Aramex uses barcode-wrapped AWB: *37294289782*

@@ -36,6 +36,7 @@ from parsers.base_parser import (
     extract_phones, extract_barcode_number, find_digit_run,
     compute_field_score, validate_fields,
 )
+from parsers.field_validation import validate_field_consistency
 from parsers.fedex.parser import FedExParser
 from parsers.dhl.parser   import DHLParser
 from parsers.ups.parser   import UPSParser
@@ -260,12 +261,20 @@ def dispatch(text: str) -> dict:
 def parse_and_score(text: str) -> dict:
     """
     Full pipeline:
-      detect → parse → score → validate
-    Returns the same shape that ocr_worker.py's --parse-only mode returns.
+      detect → parse → score → validate → sanity-check
+    Returns the same shape that ocr_worker.py's --parse-only mode returns,
+    plus "sanity_warnings" — cross-field consistency checks (postal code
+    vs. country, weight/pieces/date plausibility, etc.) that no single
+    field's own regex can catch, since they only show up when comparing
+    fields against each other. Purely informational: nothing here blocks
+    the shipment being saved or changes any field's value, unlike
+    "warnings" above (from validate_fields()) which flag genuinely
+    MISSING mandatory fields.
     """
     fields = dispatch(text)
     return {
         "fields": fields,
         "field_score": compute_field_score(fields),
         "warnings": validate_fields(fields),
+        "sanity_warnings": validate_field_consistency(fields),
     }

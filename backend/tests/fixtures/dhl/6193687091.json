@@ -1,0 +1,20 @@
+{
+  "source_pdf": "MRS__DIVYA_GIRISH_MALAYYA_CA_6193687091_AWB.pdf",
+  "raw_text": "EXPRESS WORLDWIDE\nWPX\nXMLPI 10.0 / *03-1211*\nFrom :MONISHA NAGENDRA KUMAR\nMONISHA NAGENDRA KUMAR\nNO. 10, N V M NAGAR\nKOLATUR\n600099 TIRUVALLUR\nINDIA\nTo : MRS. DIVYA GIRISH MALAYYA\nMRS. DIVYA GIRISH MALAYYA\n12541, 58A AVE. SURREY,\nBACK SIDE SUITE DOWNSTAIRS, BRITISH COLUMBIA\n- V3X 3P9\nV3X 3P9 SURREY\nCANADA\nIN-MAA-MV1 . CA-YVR-GTW\nCVGH\nDay\nC - NSR\nRef: DM1012971-D407-D407\nDate: 2026-07-18\nRef2: CSBIV Clearance.\nShipper VAT:\nReceiver VAT:\nContents: DUHAIR 3 TAB,\nWAYBILL 6193687091\n(2L)CAV3X3P9+48000001\n(J)JD014600012707391070\n\nOrigin:\nMAA\nTime\nPce/Shpt Weight Piece\n5.0 kg 1/1\n\n=== PAGE BREAK ===\n\n* ARCHIVE DOC *\nXMLPI 10.0 / *03-1211*\nFrom :MONISHA NAGENDRA KUMAR\nMONISHA NAGENDRA KUMAR\nNO. 10, N V M NAGAR\nKOLATUR\n600099 TIRUVALLUR\nINDIA\nTo : MRS. DIVYA GIRISH MALAYYA\nMRS. DIVYA GIRISH MALAYYA\n12541, 58A AVE. SURREY,\nBACK SIDE SUITE DOWNSTAIRS, BRITISH COLUMBIA\n- V3X 3P9\nV3X 3P9 SURREY\nCANADA\nIN-MAA-MV1 . CA-YVR-GTW\nCVGH\nProduct:\n[P]EXPRESS WORLDWIDE (48):\nPayment code:\nFRT A/C: 530649160\nDuty & Taxes Payer:\nDHL Billing Service:DTU,NSR\nINCOTERM:DAP\nRef: DM1012971-D407-D407\nRef2:CSBIV Clearance\nCustom Val: 24751.33 INR Shipment Date: 2026-07-18\nContents:DUHAIR 3 TAB,\nShipper VAT:\nReceiver VAT:\nWAYBILL 6193687091\nLicense Plates of pieces in shipment\nJD014600012707391070\n\nWPX\nFeatures / Services:\nDuties & Taxes Unpaid (DS)\nNo Signature Required (SX)\n5.0kg 1\n\nOrigin:\nMAA\nShpt Wght: Pieces",
+  "expected": {
+    "carrier": "DHL",
+    "from_name": "MONISHA NAGENDRA KUMAR",
+    "from_city": "Tiruvallur",
+    "from_country": "India",
+    "to_name": "DIVYA GIRISH MALAYYA",
+    "to_city": "Surrey",
+    "to_country": "Canada",
+    "carrier_tracking_number": "6193687091",
+    "actual_weight": 5.0,
+    "pieces": 1,
+    "ship_date": "2026-07-18",
+    "contents": "DUHAIR 3 TAB",
+    "declared_value": 24751.33,
+    "currency": "INR"
+  }
+}

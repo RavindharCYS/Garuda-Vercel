@@ -1,0 +1,20 @@
+{
+  "source_pdf": "synthetic — structured '1 FROM (SHIPPER)' grid layout, not a real upload",
+  "note": "This fixture exists specifically to catch a regression class hit TWICE during development: both scrambled-layout extractors (classic AWB and thermal label) were, at different points, found to misfire on a genuinely structured document like this one — reading its own field LABELS as if they were data. Keep this passing before shipping any change to services/parsers/Aramex/parser.py.",
+  "raw_text": "1 FROM (SHIPPER)\nShipper's Account No.\n60542311\nFrom (Your Name)\nMANIKANDAN KULLAN\nPhone Number\n917708992856\nStreet Address\nNO.1, THIRUVALLUVAR STREET, SOME AREA\nCity\nAkkur (Nagapattinam)\nState/Province\nTamil Nadu\nCountry\nIndia\nZIP/Postal Code\n609301\n2 TO (RECEIVER)\nTo (Receiver Name)\nKIND ATTN MR.ALAA KHAMASH\nCompany\nCICON EPOXY AND STEEL CUTTING PLANT LLC SPC\nStreet Address\nP.O BOX NO - 9704, SOME STREET\nCity\nAbu Dhabi\nCountry\nUnited Arab Emirates\n*37294289782*\nEXP PPX\n150.00 INR\nMONTHLY CALENDAR\n03/17/2026",
+  "expected": {
+    "carrier": "Aramex",
+    "from_name": "MANIKANDAN KULLAN",
+    "from_city": "Akkur (Nagapattinam)",
+    "from_country": "India",
+    "from_contact": "917708992856",
+    "to_name": "KIND ATTN MR.ALAA KHAMASH",
+    "receiver_company": "CICON EPOXY AND STEEL CUTTING PLANT LLC SPC",
+    "to_city": "Abu Dhabi",
+    "to_country": "UAE",
+    "contents": "MONTHLY CALENDAR",
+    "declared_value": 150.0,
+    "pieces": 1,
+    "ship_date": "03/17/2026"
+  }
+}
